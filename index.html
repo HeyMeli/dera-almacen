@@ -71,6 +71,8 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);fon
 
 /* ══ MAIN ══ */
 .main{background:var(--bg);}
+.page-inner{max-width:1100px;margin:0 auto;width:100%;}
+.page.active > *{max-width:1100px;margin-left:auto;margin-right:auto;}
 
 /* ══ PAGES ══ */
 .page{display:none;animation:fadeUp .2s ease;}
@@ -527,7 +529,6 @@ tr:hover td{background:var(--bg);}
           </div>
         </div>
       </div>
-    </div>
 
     <!-- ══════════ INVENTORY ══════════ -->
     <div id="page-inventory" class="page">
@@ -800,8 +801,8 @@ tr:hover td{background:var(--bg);}
       </div>
     </div>
 
-  </div><!-- end main -->
-</div><!-- end app-body -->
+
+  </div><!-- end main --></div><!-- end app-body -->
 
 <!-- SCAN MODAL -->
 <div class="scan-modal-bg" id="scan-modal">
