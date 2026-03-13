@@ -1130,7 +1130,6 @@ const SEED=[
 
 let inv=[], hist=[], periods=[], activePeriod='Sem I-2026', curItem=null, moveMode='ingreso';
 let scanStream=null, selQR=null, selQREl=null;
-let _hRows=[];
 let cLine=null,cDonut=null,cBar=null;
 
 const ZONE_COLORS={
@@ -1279,7 +1278,6 @@ document.addEventListener('click',e=>{if(!e.target.closest('.dd-wrap'))closeDD()
 
 /* ══ HOME ══ */
 function renderHome(){
-  _hRows=[];
   const pi=periodInv(),ph=periodHist();
   const low=pi.filter(i=>st(i)==='low').length,out=pi.filter(i=>st(i)==='out').length;
   document.getElementById('alert-count-badge').textContent=(low+out)+' alertas';
@@ -1302,15 +1300,45 @@ function renderHome(){
 }
 
 function hHTML(h){
-  const extra=h.type==='salida'&&h.destNom
-    ?`<span style="font-size:10px;color:var(--text3);"> → ${h.destNom}${h.destArea?' ('+h.destArea+')':''}</span>`:'';
   const motivoTag=h.motivo?`<span style="font-size:10px;background:var(--surface2);border:1px solid var(--border);border-radius:4px;padding:1px 5px;margin-left:4px;">${h.motivo}</span>`:'';
-  const rowIdx=_hRows.push(h)-1;
-  return`<div class="hrow" data-mvidx="${rowIdx}" style="border-radius:7px;padding:8px 6px;margin:0 -6px;cursor:pointer;">
-    <div class="hicon ${h.type==='ingreso'?'hi-in':'hi-out'}" style="pointer-events:none;">${h.type==='ingreso'?'↑':'↓'}</div>
-    <div class="hinfo" style="pointer-events:none;"><div class="hname">${h.name}${motivoTag}</div><div class="hmeta">${h.responsible||'—'} · ${h.date}${extra}</div></div>
-    <div class="hqty hq-${h.type}" style="pointer-events:none;">${h.type==='ingreso'?'+':'−'}${h.qty} ${h.unit}</div>
+  const isIn=h.type==='ingreso';
+  const uid='hrow_'+Math.random().toString(36).slice(2);
+  const detailRows=[
+    ['Tipo', isIn?'↑ Ingreso':'↓ Salida'],
+    ['Cantidad', h.qty+' '+h.unit+(h.unitMain&&h.unitMain!==h.unit?' = '+h.qtyMain+' '+h.unitMain:'')],
+    ['Categoría', h.cat||'—'],
+    ['Responsable', h.responsible||'—'],
+    ...(h.motivo?[['Motivo',h.motivo]]:[]),
+    ...(!isIn&&h.destNom?[['Destinatario',h.destNom],['Área',h.destArea||'—']]:[] ),
+    ...(h.note?[['Observación',h.note]]:[]),
+    ['Fecha', h.date],
+    ['Periodo', h.period],
+  ];
+  const detailHTML=detailRows.map(([l,v])=>`
+    <div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--border);font-size:12px;">
+      <span style="color:var(--text3);font-weight:500;">${l}</span>
+      <span style="color:var(--text);text-align:right;max-width:60%;">${v}</span>
+    </div>`).join('');
+  return`<div style="border-bottom:1px solid var(--border);">
+    <div onclick="toggleHRow('${uid}')" style="display:flex;align-items:center;gap:10px;padding:10px 6px;cursor:pointer;border-radius:7px;transition:background .12s;" onmouseover="this.style.background='var(--g50)'" onmouseout="this.style.background=''">
+      <div class="hicon ${isIn?'hi-in':'hi-out'}">${isIn?'↑':'↓'}</div>
+      <div class="hinfo"><div class="hname">${h.name}${motivoTag}</div><div class="hmeta">${h.responsible||'—'} · ${h.date}</div></div>
+      <div class="hqty hq-${h.type}" style="margin-left:auto;">${isIn?'+':'−'}${h.qty} ${h.unit}</div>
+      <div id="arr_${uid}" style="color:var(--text3);font-size:11px;margin-left:4px;">▼</div>
+    </div>
+    <div id="${uid}" style="display:none;padding:6px 14px 12px;background:var(--surface2);border-radius:0 0 7px 7px;">
+      ${detailHTML}
+    </div>
   </div>`;
+}
+
+function toggleHRow(uid){
+  const el=document.getElementById(uid);
+  const arr=document.getElementById('arr_'+uid);
+  if(!el)return;
+  const open=el.style.display==='none';
+  el.style.display=open?'block':'none';
+  if(arr)arr.textContent=open?'▲':'▼';
 }
 
 
@@ -1643,38 +1671,6 @@ function applyScanCode(){
   },120);
 }
 
-function openMvModal(idx){
-  const h=_hRows[idx];
-  if(!h){console.warn('No entry at index',idx);return;}
-  const isIn=h.type==='ingreso';
-  document.getElementById('mv-badge').textContent=isIn?'↑':'↓';
-  document.getElementById('mv-badge').className='mv-badge '+(isIn?'in':'out');
-  document.getElementById('mv-title').textContent=h.name;
-  document.getElementById('mv-sub').textContent=(isIn?'Ingreso':'Salida')+' · '+h.date;
-  const rows=[
-    ['Tipo',isIn?'↑ Ingreso':'↓ Salida'],
-    ['Cantidad',h.qty+' '+h.unit+(h.unitMain&&h.unitMain!==h.unit?' ('+h.qtyMain+' '+h.unitMain+')':'')],
-    ['Categoría',h.cat||'—'],
-    ['Responsable',h.responsible||'—'],
-    ...(h.motivo?[['Motivo',h.motivo]]:[]),
-    ...(isIn?[]:[
-      ['Destinatario',h.destNom||'—'],
-      ['Área / Unidad',h.destArea||'—'],
-    ]),
-    ...(h.note?[['Observación',h.note]]:[]),
-    ['Fecha y hora',h.date],
-    ['Periodo',h.period],
-  ];
-  document.getElementById('mv-body').innerHTML=rows.map(([l,v])=>`
-    <div class="mv-row">
-      <span class="mv-label">${l}</span>
-      <span class="mv-val">${v}</span>
-    </div>`).join('');
-  document.getElementById('mv-modal').classList.add('open');
-}
-function closeMvModal(){
-  document.getElementById('mv-modal').classList.remove('open');
-}
 
 function showToast(msg,duration=3000){
   let t=document.getElementById('app-toast');
@@ -1780,7 +1776,6 @@ function renderDashboard(){
 
 /* ══ HISTORY ══ */
 function renderHistory(){
-  _hRows=[];
   const ph=periodHist();
   const q=(document.getElementById('h-q').value||'').toLowerCase();
   const type=document.getElementById('h-type').value;
@@ -1858,25 +1853,6 @@ function printQR(){
   const img=document.getElementById('qr-canvas').toDataURL();
   const w=window.open('');
   w.document.write(`<!DOCTYPE html><html><head><title>QR</title><style>body{text-align:center;font-family:sans-serif;padding:30px}</style></head><body><h3>${selQR.name}</h3><p>${selQR.id}</p><img src="${img}" style="width:200px"/>
-<!-- ══ DETALLE MOVIMIENTO ══ -->
-<div class="mv-modal-bg" id="mv-modal" onclick="if(event.target===this)closeMvModal()">
-  <div class="mv-modal">
-    <div class="mv-modal-hd">
-      <div class="mv-modal-hd-left">
-        <div class="mv-badge" id="mv-badge">↑</div>
-        <div>
-          <div class="mv-modal-title" id="mv-title">—</div>
-          <div class="mv-modal-sub" id="mv-sub">—</div>
-        </div>
-      </div>
-      <button onclick="closeMvModal()" style="background:none;border:none;cursor:pointer;color:var(--text3);font-size:18px;line-height:1;">✕</button>
-    </div>
-    <div class="mv-modal-body" id="mv-body"></div>
-    <div class="mv-modal-ft">
-      <button onclick="closeMvModal()" class="btn btn-g" style="width:100%;justify-content:center;">Cerrar</button>
-    </div>
-  </div>
-</div>
 
 </body></html>`);
   w.document.close();w.print();
@@ -2206,13 +2182,6 @@ function exportPersonal(){
 /* ══ BOOT ══ */
 init();
 
-/* Movement detail — delegated listener */
-document.addEventListener('click', function(e) {
-  var row = e.target.closest ? e.target.closest('[data-mvidx]') : null;
-  if (!row) return;
-  var idx = parseInt(row.getAttribute('data-mvidx'));
-  if (!isNaN(idx)) openMvModal(idx);
-});
 </script>
 </body>
 </html>
