@@ -376,6 +376,8 @@ tr:hover td{background:var(--bg);}
   .chart-grid-2{grid-template-columns:1fr;}
 }
 
+.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#1a2e1a;color:#fff;padding:12px 20px;border-radius:10px;font-size:13px;font-weight:500;z-index:9999;box-shadow:0 4px 16px rgba(0,0,0,.3);opacity:0;transition:opacity .25s;pointer-events:none;max-width:90vw;text-align:center;}
+.toast.show{opacity:1;}
 /* ══ MOBILE ══ */
 @media(max-width:640px){
   /* Topbar mobile */
@@ -1412,67 +1414,74 @@ function openMoveModal(mode){setMoveTab(mode);document.getElementById('move-sear
 
 function confirmMove(type){
   const msgEl=document.getElementById('move-msg-home');
-  if(!curItem){
-    msgEl.innerHTML='<div class="msg m-err">⚠ Selecciona un insumo primero usando el buscador.</div>';
-    return;
-  }
-  const qtyRaw=parseFloat(document.getElementById('mi-qty').value)||1;
-  const item=inv.find(i=>i.id===curItem.id&&i.period===activePeriod);
-  if(!item){
-    msgEl.innerHTML='<div class="msg m-err">⚠ Insumo no encontrado en el inventario actual. Vuelve a buscarlo.</div>';
-    curItem=null;
-    return;
-  }
+  function err(msg){msgEl.innerHTML='<div class="msg m-err">'+msg+'</div>';}
+  try{
+    if(!curItem){err('⚠ Selecciona un insumo primero.');return;}
 
-  let resp='',note='',destNom='',destArea='',motivo='';
-  if(type==='ingreso'){
-    resp=(document.getElementById('mi-resp-in').value||'').trim();
-    note=(document.getElementById('mi-note-in').value||'').trim();
-    motivo=(document.getElementById('mi-motivo-in').value||'').trim();
-    if(!resp){msgEl.innerHTML='<div class="msg m-err">Indica el responsable del ingreso.</div>';return;}
-  } else {
-    destNom=(document.getElementById('mi-dest-nom').value||'').trim();
-    destArea=(document.getElementById('mi-dest-area').value||'').trim();
-    resp=(document.getElementById('mi-resp-out').value||'').trim();
-    note=(document.getElementById('mi-note-out').value||'').trim();
-    motivo=(document.getElementById('mi-motivo-out').value||'').trim();
-    if(!destNom){msgEl.innerHTML='<div class="msg m-err">Indica el nombre del destinatario.</div>';return;}
-    if(!resp){msgEl.innerHTML='<div class="msg m-err">Indica quién entrega el insumo.</div>';return;}
-  }
+    const qtyRaw=parseFloat(document.getElementById('mi-qty').value)||1;
+    const item=inv.find(i=>i.id===curItem.id&&i.period===activePeriod);
+    if(!item){err('⚠ Insumo no encontrado. Vuelve a buscarlo.');curItem=null;return;}
 
-  const sel=document.getElementById('mi-unit-sel').value;
-  const unitLabel=sel==='main'?item.unit:(sel==='sub1'?item.sub1:item.sub2);
-  const equiv=sel==='sub1'?item.equiv1:(sel==='sub2'?item.equiv2:null);
-  if(sel!=='main'&&!equiv){
-    document.getElementById('move-msg-home').innerHTML='<div class="msg m-err">Define primero la equivalencia de <strong>'+unitLabel+'</strong>.</div>';
-    return;
+    let resp='',note='',destNom='',destArea='',motivo='';
+    if(type==='ingreso'){
+      resp=(document.getElementById('mi-resp-in')?document.getElementById('mi-resp-in').value:'').trim();
+      note=(document.getElementById('mi-note-in')?document.getElementById('mi-note-in').value:'').trim();
+      motivo=(document.getElementById('mi-motivo-in')?document.getElementById('mi-motivo-in').value:'').trim();
+      if(!resp){err('Indica el responsable del ingreso.');return;}
+    } else {
+      destNom=(document.getElementById('mi-dest-nom')?document.getElementById('mi-dest-nom').value:'').trim();
+      destArea=(document.getElementById('mi-dest-area')?document.getElementById('mi-dest-area').value:'').trim();
+      resp=(document.getElementById('mi-resp-out')?document.getElementById('mi-resp-out').value:'').trim();
+      note=(document.getElementById('mi-note-out')?document.getElementById('mi-note-out').value:'').trim();
+      motivo=(document.getElementById('mi-motivo-out')?document.getElementById('mi-motivo-out').value:'').trim();
+      if(!destNom){err('Indica el nombre del destinatario.');return;}
+      if(!resp){err('Indica quién entrega el insumo.');return;}
+    }
+
+    const selEl=document.getElementById('mi-unit-sel');
+    const sel=selEl?selEl.value:'main';
+    const unitLabel=sel==='main'?item.unit:(sel==='sub1'?item.sub1:item.sub2);
+    const equiv=sel==='sub1'?item.equiv1:(sel==='sub2'?item.equiv2:null);
+    if(sel!=='main'&&!equiv){err('Define primero la equivalencia de '+unitLabel+'.');return;}
+
+    const qtyInMain=sel==='main'?qtyRaw:qtyRaw/equiv;
+    if(type==='salida'&&qtyInMain>item.qty){
+      const avail=sel==='main'?item.qty+' '+item.unit:fmt(item.qty*equiv)+' '+unitLabel;
+      err('⚠ Stock insuficiente. Disponible: '+avail);return;
+    }
+
+    const newQty=type==='ingreso'?item.qty+qtyInMain:item.qty-qtyInMain;
+    item.qty=Math.round(newQty*10000)/10000;
+
+    const timestamp=now();
+    const entry={
+      id:item.id,name:item.name,cat:item.cat,unit:unitLabel,unitMain:item.unit,
+      type,qty:qtyRaw,qtyMain:fmt(qtyInMain),
+      responsible:resp,destNom,destArea,motivo,
+      note,date:timestamp,_d:new Date(),period:activePeriod
+    };
+    hist.push(entry);
+
+    // Save locally first (fast)
+    saveDB();
+
+    // Save to Firebase (async, non-blocking)
+    if(typeof window.fbAddHist==='function'){
+      window.fbAddHist(entry).catch(e=>console.warn('fbAddHist:',e));
+    }
+
+    // Cerrar formulario inmediatamente
+    clearMoveForm();
+    renderHome();
+
+    // Mostrar mensaje de éxito flotante
+    const convLine=sel!=='main'?' ('+qtyRaw+' '+unitLabel+' = '+fmt(qtyInMain)+' '+item.unit+')':'';
+    showToast('✅ '+(type==='ingreso'?'Ingreso':'Salida')+' de '+qtyRaw+' '+unitLabel+' registrado.'+convLine);
+
+  } catch(e){
+    err('❌ Error inesperado: '+e.message+'. Intenta de nuevo.');
+    console.error('confirmMove error:',e);
   }
-  const qtyInMain=sel==='main'?qtyRaw:qtyRaw/equiv;
-  if(type==='salida'&&qtyInMain>item.qty){
-    const avail=sel==='main'?item.qty+' '+item.unit:fmt(item.qty*equiv)+' '+unitLabel+' ('+item.qty+' '+item.unit+')';
-    document.getElementById('move-msg-home').innerHTML='<div class="msg m-err">⚠ Stock insuficiente. Disponible: <strong>'+avail+'</strong></div>';
-    return;
-  }
-  const newQty=type==='ingreso'?item.qty+qtyInMain:item.qty-qtyInMain;
-  item.qty=Math.round(newQty*10000)/10000;
-  const convLine=sel!=='main'?'<br><span style="font-size:11px;opacity:.75;">'+qtyRaw+' '+unitLabel+' → '+fmt(qtyInMain)+' '+item.unit+' (1 '+item.unit+' = '+equiv+' '+unitLabel+')</span>':'';
-  const timestamp=now();
-  hist.push({
-    id:item.id,name:item.name,cat:item.cat,unit:unitLabel,unitMain:item.unit,
-    type,qty:qtyRaw,qtyMain:fmt(qtyInMain),
-    responsible:resp,
-    destNom,destArea,motivo,
-    note,date:timestamp,_d:new Date(),period:activePeriod
-  });
-  const extraLine=type==='salida'?'<br><span style="font-size:11px;opacity:.75;">➤ '+destNom+' · '+destArea+' · '+motivo+'</span>':'';
-  document.getElementById('move-msg-home').innerHTML='<div class="msg m-ok">✅ '+(type==='ingreso'?'Ingreso':'Salida')+' de <strong>'+qtyRaw+' '+unitLabel+'</strong> registrado.'+convLine+extraLine+'<br>Stock actual: <strong>'+item.qty+' '+item.unit+'</strong></div>';
-  if(typeof window.fbAddHist==='function'){
-    const lastEntry=hist[hist.length-1];
-    window.fbAddHist(lastEntry).catch(e=>console.warn('fbAddHist:',e));
-  }
-  saveDB();
-  clearMoveForm();renderHome();
-  setTimeout(()=>{const m=document.getElementById('move-msg-home');if(m)m.innerHTML='';},4000);
 }
 
 /* ══ SCAN MODAL ══ */
@@ -1601,6 +1610,13 @@ function applyScanCode(){
     const box=document.getElementById('move-item-box');
     if(box)box.scrollIntoView({behavior:'smooth',block:'center'});
   },120);
+}
+function showToast(msg,duration=3000){
+  let t=document.getElementById('app-toast');
+  if(!t){t=document.createElement('div');t.id='app-toast';t.className='toast';document.body.appendChild(t);}
+  t.textContent=msg;t.classList.add('show');
+  clearTimeout(t._tid);
+  t._tid=setTimeout(()=>t.classList.remove('show'),duration);
 }
 function showScanMsg(msg,type){
   const el=document.getElementById('scan-msg');
