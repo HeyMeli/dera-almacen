@@ -8,6 +8,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
 <script type="module">
 import{initializeApp}from'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
 import{getFirestore,doc,getDoc,setDoc,collection,addDoc,getDocs,onSnapshot,deleteDoc,query,orderBy}from'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
@@ -90,7 +91,10 @@ function fbListen(){
       hist.push(h);
     });
     hist.sort((a,b)=>a._d-b._d);
-    renderHome();
+    // Only re-render if user is NOT mid-form
+    const formActive=curItem&&document.getElementById('move-item-box')&&
+      document.getElementById('move-item-box').style.display!=='none';
+    if(!formActive) renderHome();
     if(document.getElementById('page-dashboard').classList.contains('active'))renderDashboard();
     if(document.getElementById('page-history').classList.contains('active'))renderHistory();
   });
@@ -1394,12 +1398,12 @@ function adjQ(d){
   i.value=Math.max(0.001,(parseFloat(i.value)||1)+d);
   updateUnitConversion();
 }
-function clearMoveForm(){
+function clearMoveForm(keepMsg){
   curItem=null;
   document.getElementById('move-item-box').style.display='none';
   document.getElementById('move-search').value='';
   document.getElementById('live-results').innerHTML='';
-  document.getElementById('move-msg-home').innerHTML='';
+  if(!keepMsg)document.getElementById('move-msg-home').innerHTML='';
   document.getElementById('unit-conversion-note').style.display='none';
   ['mi-resp-in','mi-note-in','mi-resp-out','mi-note-out','mi-dest-nom'].forEach(fid=>{const el=document.getElementById(fid);if(el)el.value='';});
   ['mi-motivo-in','mi-motivo-out','mi-dest-area'].forEach(fid=>{const el=document.getElementById(fid);if(el)el.value='';});
@@ -1407,10 +1411,18 @@ function clearMoveForm(){
 function openMoveModal(mode){setMoveTab(mode);document.getElementById('move-search').focus();}
 
 function confirmMove(type){
-  if(!curItem)return;
-  const qtyRaw=parseFloat(document.getElementById('mi-qty').value)||1;
-  const item=inv.find(i=>i.id===curItem.id);if(!item)return;
   const msgEl=document.getElementById('move-msg-home');
+  if(!curItem){
+    msgEl.innerHTML='<div class="msg m-err">⚠ Selecciona un insumo primero usando el buscador.</div>';
+    return;
+  }
+  const qtyRaw=parseFloat(document.getElementById('mi-qty').value)||1;
+  const item=inv.find(i=>i.id===curItem.id&&i.period===activePeriod);
+  if(!item){
+    msgEl.innerHTML='<div class="msg m-err">⚠ Insumo no encontrado en el inventario actual. Vuelve a buscarlo.</div>';
+    curItem=null;
+    return;
+  }
 
   let resp='',note='',destNom='',destArea='',motivo='';
   if(type==='ingreso'){
@@ -1460,6 +1472,7 @@ function confirmMove(type){
   }
   saveDB();
   clearMoveForm();renderHome();
+  setTimeout(()=>{const m=document.getElementById('move-msg-home');if(m)m.innerHTML='';},4000);
 }
 
 /* ══ SCAN MODAL ══ */
@@ -1728,21 +1741,34 @@ function pickQR(id){
   document.getElementById('qr-id').textContent=item.id+' · '+item.cat;
   document.getElementById('qr-out-inner').style.display='block';
   document.getElementById('qr-placeholder').style.display='none';
-  drawQR(document.getElementById('qr-canvas'),item.id+'|'+item.name);
+  drawQR(document.getElementById('qr-canvas'),item.id);
 }
+let _qrInstance=null;
 function drawQR(canvas,text){
-  const sz=190,ctx=canvas.getContext('2d');
-  ctx.fillStyle='#fff';ctx.fillRect(0,0,sz,sz);
-  const mat=mkQR(text),n=mat.length,cell=Math.floor((sz-16)/n),off=Math.floor((sz-n*cell)/2);
-  ctx.fillStyle='#1a2e1a';
-  for(let r=0;r<n;r++)for(let c=0;c<n;c++)if(mat[r][c])ctx.fillRect(off+c*cell,off+r*cell,cell,cell);
-}
-function mkQR(text){
-  const sz=25,mat=Array.from({length:sz},()=>Array(sz).fill(0));
-  [[0,0],[0,sz-7],[sz-7,0]].forEach(([r,c])=>{for(let i=0;i<7;i++)for(let j=0;j<7;j++)mat[r+i][c+j]=(i===0||i===6||j===0||j===6||(i>=2&&i<=4&&j>=2&&j<=4))?1:0;});
-  let h=5381;for(let i=0;i<text.length;i++)h=((h<<5)+h)^text.charCodeAt(i);
-  for(let r=8;r<sz-8;r++)for(let c=8;c<sz-8;c++){h=(h*1664525+1013904223)|0;mat[r][c]=(h>>>0)%2;}
-  return mat;
+  const wrap=canvas.parentElement;
+  // Clear previous
+  if(_qrInstance){_qrInstance.clear();_qrInstance=null;}
+  canvas.getContext('2d').clearRect(0,0,canvas.width,canvas.height);
+  // Use a temp div for QRCode lib, then copy to canvas
+  const tmp=document.createElement('div');
+  tmp.style.display='none';
+  document.body.appendChild(tmp);
+  const qr=new QRCode(tmp,{text,width:190,height:190,colorDark:'#1a2e1a',colorLight:'#ffffff',correctLevel:QRCode.CorrectLevel.M});
+  _qrInstance=qr;
+  setTimeout(()=>{
+    const img=tmp.querySelector('img');
+    if(img&&img.complete){
+      const ctx=canvas.getContext('2d');
+      ctx.clearRect(0,0,canvas.width,canvas.height);
+      ctx.drawImage(img,0,0,190,190);
+    } else if(img){
+      img.onload=()=>{
+        const ctx=canvas.getContext('2d');
+        ctx.drawImage(img,0,0,190,190);
+      };
+    }
+    document.body.removeChild(tmp);
+  },100);
 }
 function dlQR(){if(!selQR)return;const a=document.createElement('a');a.href=document.getElementById('qr-canvas').toDataURL();a.download='QR-'+selQR.id+'.png';a.click();}
 function printQR(){
