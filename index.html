@@ -378,6 +378,27 @@ tr:hover td{background:var(--bg);}
 
 .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#1a2e1a;color:#fff;padding:12px 20px;border-radius:10px;font-size:13px;font-weight:500;z-index:9999;box-shadow:0 4px 16px rgba(0,0,0,.3);opacity:0;transition:opacity .25s;pointer-events:none;max-width:90vw;text-align:center;}
 .toast.show{opacity:1;}
+
+/* ══ DETALLE MOVIMIENTO MODAL ══ */
+.mv-modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:700;display:none;align-items:center;justify-content:center;padding:16px;}
+.mv-modal-bg.open{display:flex;}
+.mv-modal{background:var(--surface);border-radius:var(--rxl);padding:0;max-width:400px;width:100%;box-shadow:var(--sh2);overflow:hidden;}
+.mv-modal-hd{padding:16px 18px 12px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--border);}
+.mv-modal-hd-left{display:flex;align-items:center;gap:10px;}
+.mv-badge{width:34px;height:34px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:700;flex-shrink:0;}
+.mv-badge.in{background:var(--g100);color:var(--g700);}
+.mv-badge.out{background:#fde8e8;color:var(--red);}
+.mv-modal-title{font-size:14px;font-weight:600;color:var(--text);}
+.mv-modal-sub{font-size:11px;color:var(--text3);margin-top:1px;}
+.mv-modal-body{padding:14px 18px;}
+.mv-row{display:flex;justify-content:space-between;align-items:flex-start;padding:7px 0;border-bottom:1px solid var(--border);}
+.mv-row:last-child{border-bottom:none;}
+.mv-label{font-size:11px;color:var(--text3);font-weight:500;text-transform:uppercase;letter-spacing:.04em;}
+.mv-val{font-size:13px;color:var(--text);font-weight:500;text-align:right;max-width:60%;}
+.mv-modal-ft{padding:12px 18px;border-top:1px solid var(--border);}
+.hrow{cursor:pointer;transition:background .12s;}
+.hrow:hover{background:var(--g50);}
+
 /* ══ MOBILE ══ */
 @media(max-width:640px){
   /* Topbar mobile */
@@ -1270,14 +1291,15 @@ function renderHome(){
     </div>`).join(''):'<div class="empty">✅ Sin alertas de stock</div>';
   // last 10
   const rec=ph.slice(-10).reverse();
-  document.getElementById('home-hist').innerHTML=rec.length?rec.map(h=>hHTML(h)).join(''):'<div class="empty">Sin movimientos en este periodo</div>';
+  const allPH=ph.slice(); document.getElementById('home-hist').innerHTML=rec.length?rec.map(h=>hHTML(h,allPH.indexOf(h))).join(''):'<div class="empty">Sin movimientos en este periodo</div>';
 }
 
-function hHTML(h){
+function hHTML(h,idx){
   const extra=h.type==='salida'&&h.destNom
     ?`<span style="font-size:10px;color:var(--text3);"> → ${h.destNom}${h.destArea?' ('+h.destArea+')':''}</span>`:'';
   const motivoTag=h.motivo?`<span style="font-size:10px;background:var(--surface2);border:1px solid var(--border);border-radius:4px;padding:1px 5px;margin-left:4px;">${h.motivo}</span>`:'';
-  return`<div class="hrow">
+  const dataIdx=idx!==undefined?`data-hidx="${idx}"`:'';
+  return`<div class="hrow" ${dataIdx} onclick="showMvDetail(this)" style="border-radius:7px;padding:8px 6px;margin:0 -6px;">
     <div class="hicon ${h.type==='ingreso'?'hi-in':'hi-out'}">${h.type==='ingreso'?'↑':'↓'}</div>
     <div class="hinfo"><div class="hname">${h.name}${motivoTag}</div><div class="hmeta">${h.responsible||'—'} · ${h.date}${extra}</div></div>
     <div class="hqty hq-${h.type}">${h.type==='ingreso'?'+':'−'}${h.qty} ${h.unit}</div>
@@ -1612,6 +1634,42 @@ function applyScanCode(){
     if(box)box.scrollIntoView({behavior:'smooth',block:'center'});
   },120);
 }
+
+function showMvDetail(el){
+  const idx=parseInt(el.getAttribute('data-hidx'));
+  const ph=hist.filter(h=>h.period===activePeriod);
+  const h=isNaN(idx)?null:ph[idx];
+  if(!h)return;
+  const isIn=h.type==='ingreso';
+  document.getElementById('mv-badge').textContent=isIn?'↑':'↓';
+  document.getElementById('mv-badge').className='mv-badge '+(isIn?'in':'out');
+  document.getElementById('mv-title').textContent=h.name;
+  document.getElementById('mv-sub').textContent=(isIn?'Ingreso':'Salida')+' · '+h.date;
+  const rows=[
+    ['Tipo',isIn?'↑ Ingreso':'↓ Salida'],
+    ['Cantidad',h.qty+' '+h.unit+(h.unitMain&&h.unitMain!==h.unit?' ('+h.qtyMain+' '+h.unitMain+')':'')],
+    ['Categoría',h.cat||'—'],
+    ['Responsable',h.responsible||'—'],
+    ...(h.motivo?[['Motivo',h.motivo]]:[]),
+    ...(isIn?[]:[
+      ['Destinatario',h.destNom||'—'],
+      ['Área / Unidad',h.destArea||'—'],
+    ]),
+    ...(h.note?[['Observación',h.note]]:[]),
+    ['Fecha y hora',h.date],
+    ['Periodo',h.period],
+  ];
+  document.getElementById('mv-body').innerHTML=rows.map(([l,v])=>`
+    <div class="mv-row">
+      <span class="mv-label">${l}</span>
+      <span class="mv-val">${v}</span>
+    </div>`).join('');
+  document.getElementById('mv-modal').classList.add('open');
+}
+function closeMvModal(){
+  document.getElementById('mv-modal').classList.remove('open');
+}
+
 function showToast(msg,duration=3000){
   let t=document.getElementById('app-toast');
   if(!t){t=document.createElement('div');t.id='app-toast';t.className='toast';document.body.appendChild(t);}
@@ -1721,7 +1779,7 @@ function renderHistory(){
   const type=document.getElementById('h-type').value;
   const f=ph.filter(h=>(!type||h.type===type)&&(!q||h.name.toLowerCase().includes(q)||(h.responsible||'').toLowerCase().includes(q)));
   document.getElementById('hist-period-sub').textContent='Periodo: '+activePeriod+' · '+f.length+' registros';
-  document.getElementById('hist-list').innerHTML=f.length?f.slice().reverse().map(h=>hHTML(h)).join(''):'<div class="empty">Sin movimientos encontrados</div>';
+  const allH=hist.filter(h=>h.period===activePeriod); document.getElementById('hist-list').innerHTML=f.length?f.slice().reverse().map(h=>hHTML(h,allH.indexOf(h))).join(''):'<div class="empty">Sin movimientos encontrados</div>';
 }
 
 /* ══ ADD ══ */
@@ -1792,7 +1850,28 @@ function printQR(){
   if(!selQR)return;
   const img=document.getElementById('qr-canvas').toDataURL();
   const w=window.open('');
-  w.document.write(`<!DOCTYPE html><html><head><title>QR</title><style>body{text-align:center;font-family:sans-serif;padding:30px}</style></head><body><h3>${selQR.name}</h3><p>${selQR.id}</p><img src="${img}" style="width:200px"/></body></html>`);
+  w.document.write(`<!DOCTYPE html><html><head><title>QR</title><style>body{text-align:center;font-family:sans-serif;padding:30px}</style></head><body><h3>${selQR.name}</h3><p>${selQR.id}</p><img src="${img}" style="width:200px"/>
+<!-- ══ DETALLE MOVIMIENTO ══ -->
+<div class="mv-modal-bg" id="mv-modal" onclick="if(event.target===this)closeMvModal()">
+  <div class="mv-modal">
+    <div class="mv-modal-hd">
+      <div class="mv-modal-hd-left">
+        <div class="mv-badge" id="mv-badge">↑</div>
+        <div>
+          <div class="mv-modal-title" id="mv-title">—</div>
+          <div class="mv-modal-sub" id="mv-sub">—</div>
+        </div>
+      </div>
+      <button onclick="closeMvModal()" style="background:none;border:none;cursor:pointer;color:var(--text3);font-size:18px;line-height:1;">✕</button>
+    </div>
+    <div class="mv-modal-body" id="mv-body"></div>
+    <div class="mv-modal-ft">
+      <button onclick="closeMvModal()" class="btn btn-g" style="width:100%;justify-content:center;">Cerrar</button>
+    </div>
+  </div>
+</div>
+
+</body></html>`);
   w.document.close();w.print();
 }
 
