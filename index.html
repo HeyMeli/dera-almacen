@@ -1185,6 +1185,7 @@ function init(){
 
 /* ══ UTILS ══ */
 function st(item){if(item.qty===0)return'out';if(item.qty<=item.minStock)return'low';return'ok';}
+function fmt(n){return Number.isInteger(n)?String(n):parseFloat(n.toFixed(4)).toString();}
 function badgeHTML(item){const s=st(item),L={ok:'Normal',low:'Stock bajo',out:'Sin stock'};return`<span class="badge b-${s}">${L[s]}</span>`;}
 function now(){const n=new Date();return n.toLocaleDateString('es-PE')+' '+n.toLocaleTimeString('es-PE',{hour:'2-digit',minute:'2-digit'});}
 function genId(n){return'INS-'+n.replace(/\s+/g,'').slice(0,4).toUpperCase()+'-'+String(inv.length+1).padStart(3,'0');}
