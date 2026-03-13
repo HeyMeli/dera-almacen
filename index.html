@@ -1311,7 +1311,7 @@ function hHTML(h){
     ?`<span style="font-size:10px;color:var(--text3);"> → ${h.destNom}${h.destArea?' ('+h.destArea+')':''}</span>`:'';
   const motivoTag=h.motivo?`<span style="font-size:10px;background:var(--surface2);border:1px solid var(--border);border-radius:4px;padding:1px 5px;margin-left:4px;">${h.motivo}</span>`:'';
   const rowIdx=_hRows.push(h)-1;
-  return`<div class="hrow" style="border-radius:7px;padding:8px 6px;margin:0 -6px;cursor:pointer;" onclick="openMvModal(${rowIdx})">
+  return`<div class="hrow" data-mvidx="${rowIdx}" style="border-radius:7px;padding:8px 6px;margin:0 -6px;cursor:pointer;">
     <div class="hicon ${h.type==='ingreso'?'hi-in':'hi-out'}" style="pointer-events:none;">${h.type==='ingreso'?'↑':'↓'}</div>
     <div class="hinfo" style="pointer-events:none;"><div class="hname">${h.name}${motivoTag}</div><div class="hmeta">${h.responsible||'—'} · ${h.date}${extra}</div></div>
     <div class="hqty hq-${h.type}" style="pointer-events:none;">${h.type==='ingreso'?'+':'−'}${h.qty} ${h.unit}</div>
@@ -2210,6 +2210,15 @@ function exportPersonal(){
 
 /* ══ BOOT ══ */
 init();
+
+/* ══ DELEGATED CLICK — movimientos ══ */
+document.addEventListener('click',function(e){
+  const row=e.target.closest('[data-mvidx]');
+  if(row){
+    const idx=parseInt(row.getAttribute('data-mvidx'));
+    openMvModal(idx);
+  }
+});
 </script>
 </body>
 </html>
