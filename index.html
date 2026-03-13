@@ -7,6 +7,7 @@
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,400&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet"/>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.min.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0;}
 :root{
@@ -1317,29 +1318,82 @@ function openScanModal(){
   startScan();
 }
 function closeScanModal(){stopScan();document.getElementById('scan-modal').classList.remove('open');}
+let scanRAF=null;
+let scanCanvas=null;
+let scanCtx=null;
+
 function startScan(){
   showScanMsg('📷 Iniciando cámara...','info');
   if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){
-    showScanMsg('Cámara no disponible en este navegador. Usa el buscador manual o ingresa el código abajo.','err');
+    showScanMsg('Cámara no disponible. Usa el buscador manual abajo.','err');
     return;
   }
-  navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'}}}).then(s=>{
+  navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1280},height:{ideal:720}}}).then(s=>{
     scanStream=s;
-    const v=document.getElementById('scan-video');v.srcObject=s;v.play();
+    const v=document.getElementById('scan-video');
+    v.srcObject=s;
+    v.play();
     document.getElementById('scan-video-wrap').style.display='block';
     document.getElementById('scan-start-btn').style.display='none';
     document.getElementById('scan-stop-btn').style.display='inline-flex';
-    document.getElementById('scan-msg').innerHTML='';
-  }).catch(()=>{
+    showScanMsg('🔍 Apunta la cámara al código QR...','info');
+    // Create offscreen canvas for jsQR
+    scanCanvas=document.createElement('canvas');
+    scanCtx=scanCanvas.getContext('2d');
+    v.addEventListener('loadedmetadata',()=>{ scanLoop(); });
+  }).catch(e=>{
     showScanMsg('No se pudo acceder a la cámara. Ingresa el código manualmente abajo.','err');
     document.getElementById('scan-start-btn').style.display='inline-flex';
   });
 }
+
+function scanLoop(){
+  const v=document.getElementById('scan-video');
+  if(!scanStream||!v||v.readyState<2){
+    scanRAF=requestAnimationFrame(scanLoop);
+    return;
+  }
+  scanCanvas.width=v.videoWidth||320;
+  scanCanvas.height=v.videoHeight||240;
+  scanCtx.drawImage(v,0,0,scanCanvas.width,scanCanvas.height);
+  try{
+    const img=scanCtx.getImageData(0,0,scanCanvas.width,scanCanvas.height);
+    const code=jsQR(img.data,img.width,img.height,{inversionAttempts:'dontInvert'});
+    if(code&&code.data){
+      // Found a QR — try to match insumo
+      const qrData=code.data.trim();
+      const item=inv.find(i=>i.period===activePeriod&&(
+        i.id===qrData||
+        i.id.toLowerCase()===qrData.toLowerCase()||
+        i.name.toLowerCase()===qrData.toLowerCase()
+      ));
+      if(item){
+        // Success
+        stopScan();
+        closeScanModal();
+        document.getElementById('move-search').value=item.name;
+        pickItem(item.id);
+        setTimeout(()=>{
+          const box=document.getElementById('move-item-box');
+          if(box)box.scrollIntoView({behavior:'smooth',block:'center'});
+        },120);
+        return;
+      } else {
+        showScanMsg('⚠ Código leído: <strong>'+qrData+'</strong> — no encontrado en inventario.','err');
+        // Keep scanning
+      }
+    }
+  } catch(e){}
+  scanRAF=requestAnimationFrame(scanLoop);
+}
+
 function stopScan(){
+  if(scanRAF){cancelAnimationFrame(scanRAF);scanRAF=null;}
   if(scanStream){scanStream.getTracks().forEach(t=>t.stop());scanStream=null;}
   const w=document.getElementById('scan-video-wrap');if(w)w.style.display='none';
   const a=document.getElementById('scan-start-btn'),b=document.getElementById('scan-stop-btn');
   if(a)a.style.display='none';if(b)b.style.display='none';
+  scanCanvas=null;scanCtx=null;
 }
 function applyScanCode(){
   const code=document.getElementById('scan-manual-code').value.trim();
