@@ -242,6 +242,23 @@ tr:hover td{background:var(--bg);}
 
 .empty{text-align:center;padding:28px 16px;color:var(--text3);font-size:12px;}
 
+.mob-menu-btn{
+  display:none;
+  align-items:center;justify-content:center;
+  width:36px;height:36px;border-radius:7px;
+  background:rgba(255,255,255,.08);border:none;
+  cursor:pointer;color:#fff;flex-shrink:0;
+  margin-right:4px;
+}
+.mob-title{display:none;font-size:13px;font-weight:700;color:#fff;white-space:nowrap;}
+/* Overlay behind sidebar on mobile */
+.sidebar-overlay{
+  display:none;
+  position:fixed;top:50px;left:0;right:0;bottom:0;
+  background:rgba(0,0,0,.45);z-index:299;
+}
+
+/* ══ RESPONSIVE 1100px ══ */
 @media(max-width:1100px){
   .kpi-row{grid-template-columns:1fr 1fr;}
   .home-grid{grid-template-columns:1fr;}
@@ -298,22 +315,7 @@ tr:hover td{background:var(--bg);}
   .page.active > *{max-width:100%;}
 }
 
-/* Hamburger — hidden on desktop */
-.mob-menu-btn{
-  display:none;
-  align-items:center;justify-content:center;
-  width:36px;height:36px;border-radius:7px;
-  background:rgba(255,255,255,.08);border:none;
-  cursor:pointer;color:#fff;flex-shrink:0;
-  margin-right:4px;
-}
-.mob-title{display:none;font-size:13px;font-weight:700;color:#fff;white-space:nowrap;}
-/* Overlay behind sidebar on mobile */
-.sidebar-overlay{
-  display:none;
-  position:fixed;top:50px;left:0;right:0;bottom:0;
-  background:rgba(0,0,0,.45);z-index:299;
-}
+/* Hamburger and overlay already defined above media queries */
 </style>
 </head>
 <body>
