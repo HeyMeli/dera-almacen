@@ -79,6 +79,11 @@ async function fbLoad(){
   renderHome();
   renderFloorMap();
   renderZones();
+  // Event delegation for movement detail popup
+  document.addEventListener('click',function(e){
+    const row=e.target.closest('[data-hidx]');
+    if(row) showMvDetail(row);
+  });
 }
 
 /* ── Escuchar cambios en tiempo real (historial) ── */
@@ -1125,6 +1130,7 @@ const SEED=[
 
 let inv=[], hist=[], periods=[], activePeriod='Sem I-2026', curItem=null, moveMode='ingreso';
 let scanStream=null, selQR=null, selQREl=null;
+let _hRows=[];
 let cLine=null,cDonut=null,cBar=null;
 
 const ZONE_COLORS={
@@ -1202,6 +1208,11 @@ function init(){
   renderHome();
   renderFloorMap();
   renderZones();
+  // Event delegation for movement detail popup
+  document.addEventListener('click',function(e){
+    const row=e.target.closest('[data-hidx]');
+    if(row) showMvDetail(row);
+  });
 }
 
 /* ══ UTILS ══ */
@@ -1273,6 +1284,7 @@ document.addEventListener('click',e=>{if(!e.target.closest('.dd-wrap'))closeDD()
 
 /* ══ HOME ══ */
 function renderHome(){
+  _hRows=[];
   const pi=periodInv(),ph=periodHist();
   const low=pi.filter(i=>st(i)==='low').length,out=pi.filter(i=>st(i)==='out').length;
   document.getElementById('alert-count-badge').textContent=(low+out)+' alertas';
@@ -1291,20 +1303,21 @@ function renderHome(){
     </div>`).join(''):'<div class="empty">✅ Sin alertas de stock</div>';
   // last 10
   const rec=ph.slice(-10).reverse();
-  const allPH=ph.slice(); document.getElementById('home-hist').innerHTML=rec.length?rec.map(h=>hHTML(h,allPH.indexOf(h))).join(''):'<div class="empty">Sin movimientos en este periodo</div>';
+  const allPH=ph.slice(); document.getElementById('home-hist').innerHTML=rec.length?rec.map(h=>hHTML(h)).join(''):'<div class="empty">Sin movimientos en este periodo</div>';
 }
 
-function hHTML(h,idx){
+function hHTML(h){
   const extra=h.type==='salida'&&h.destNom
     ?`<span style="font-size:10px;color:var(--text3);"> → ${h.destNom}${h.destArea?' ('+h.destArea+')':''}</span>`:'';
   const motivoTag=h.motivo?`<span style="font-size:10px;background:var(--surface2);border:1px solid var(--border);border-radius:4px;padding:1px 5px;margin-left:4px;">${h.motivo}</span>`:'';
-  const dataIdx=idx!==undefined?`data-hidx="${idx}"`:'';
-  return`<div class="hrow" ${dataIdx} onclick="showMvDetail(event.currentTarget)" style="border-radius:7px;padding:8px 6px;margin:0 -6px;">
-    <div class="hicon ${h.type==='ingreso'?'hi-in':'hi-out'}">${h.type==='ingreso'?'↑':'↓'}</div>
-    <div class="hinfo"><div class="hname">${h.name}${motivoTag}</div><div class="hmeta">${h.responsible||'—'} · ${h.date}${extra}</div></div>
-    <div class="hqty hq-${h.type}">${h.type==='ingreso'?'+':'−'}${h.qty} ${h.unit}</div>
+  const rowIdx=_hRows.push(h)-1;
+  return`<div class="hrow" style="border-radius:7px;padding:8px 6px;margin:0 -6px;cursor:pointer;" onclick="openMvModal(${rowIdx})">
+    <div class="hicon ${h.type==='ingreso'?'hi-in':'hi-out'}" style="pointer-events:none;">${h.type==='ingreso'?'↑':'↓'}</div>
+    <div class="hinfo" style="pointer-events:none;"><div class="hname">${h.name}${motivoTag}</div><div class="hmeta">${h.responsible||'—'} · ${h.date}${extra}</div></div>
+    <div class="hqty hq-${h.type}" style="pointer-events:none;">${h.type==='ingreso'?'+':'−'}${h.qty} ${h.unit}</div>
   </div>`;
 }
+
 
 /* ══ MOVE FORM ══ */
 function setMoveTab(mode){
@@ -1635,14 +1648,9 @@ function applyScanCode(){
   },120);
 }
 
-function showMvDetail(el){
-  // Walk up to the hrow in case a child element was clicked
-  const row=el.closest?el.closest('[data-hidx]'):el;
-  if(!row)return;
-  const idx=parseInt(row.getAttribute('data-hidx'));
-  const ph=hist.filter(h=>h.period===activePeriod);
-  const h=isNaN(idx)?null:ph[idx];
-  if(!h)return;
+function openMvModal(idx){
+  const h=_hRows[idx];
+  if(!h){console.warn('No entry at index',idx);return;}
   const isIn=h.type==='ingreso';
   document.getElementById('mv-badge').textContent=isIn?'↑':'↓';
   document.getElementById('mv-badge').className='mv-badge '+(isIn?'in':'out');
@@ -1777,12 +1785,13 @@ function renderDashboard(){
 
 /* ══ HISTORY ══ */
 function renderHistory(){
+  _hRows=[];
   const ph=periodHist();
   const q=(document.getElementById('h-q').value||'').toLowerCase();
   const type=document.getElementById('h-type').value;
   const f=ph.filter(h=>(!type||h.type===type)&&(!q||h.name.toLowerCase().includes(q)||(h.responsible||'').toLowerCase().includes(q)));
   document.getElementById('hist-period-sub').textContent='Periodo: '+activePeriod+' · '+f.length+' registros';
-  const allH=hist.filter(h=>h.period===activePeriod); document.getElementById('hist-list').innerHTML=f.length?f.slice().reverse().map(h=>hHTML(h,allH.indexOf(h))).join(''):'<div class="empty">Sin movimientos encontrados</div>';
+  const allH=hist.filter(h=>h.period===activePeriod); document.getElementById('hist-list').innerHTML=f.length?f.slice().reverse().map(h=>hHTML(h)).join(''):'<div class="empty">Sin movimientos encontrados</div>';
 }
 
 /* ══ ADD ══ */
