@@ -371,6 +371,11 @@ tr:hover td{background:var(--bg);}
   display:none;
   position:fixed;top:50px;left:0;right:0;bottom:0;
   background:rgba(0,0,0,.45);z-index:299;
+  pointer-events:none;
+}
+.sidebar-overlay.mob-open{
+  display:block;
+  pointer-events:all;
 }
 
 /* ══ RESPONSIVE 1100px ══ */
@@ -426,7 +431,7 @@ tr:hover td{background:var(--bg);}
   }
   .sidebar.mob-open{left:0!important;}
   .sidebar-overlay{display:none;}
-  .sidebar-overlay.mob-open{display:block;}
+  .sidebar-overlay.mob-open{display:block;pointer-events:all;}
   /* Main full width */
   .main{
     left:0!important;width:100%!important;
