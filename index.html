@@ -1019,6 +1019,8 @@ tr:hover td{background:var(--bg);}
 
     <!-- Loading / error message -->
     <div id="scan-msg" style="margin-bottom:8px;"></div>
+    <!-- Debug info -->
+    <div id="scan-debug" style="font-size:10px;color:var(--g500);margin-bottom:6px;display:none;"></div>
 
     <!-- Retry button: only visible if camera failed -->
     <button class="btn btn-g" id="scan-start-btn" onclick="startScan()" style="display:none;width:100%;justify-content:center;margin-bottom:10px;">
@@ -1483,13 +1485,20 @@ function startScan(){
   showScanMsg('📷 Iniciando cámara...','info');
   if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){
     showScanMsg('Cámara no disponible. Usa el buscador manual abajo.','err');
+    document.getElementById('scan-start-btn').style.display='inline-flex';
     return;
   }
-  navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1280},height:{ideal:720}}}).then(s=>{
+  // Check jsQR loaded
+  if(typeof jsQR==='undefined'){
+    showScanMsg('⚠ Librería QR no cargada. Verifica tu conexión a internet.','err');
+    return;
+  }
+  navigator.mediaDevices.getUserMedia({
+    video:{facingMode:{ideal:'environment'},width:{ideal:1280},height:{ideal:720}}
+  }).then(s=>{
     scanStream=s;
     const v=document.getElementById('scan-video');
     v.srcObject=s;
-    v.play();
     document.getElementById('scan-video-wrap').style.display='block';
     document.getElementById('scan-start-btn').style.display='none';
     document.getElementById('scan-stop-btn').style.display='inline-flex';
@@ -1497,9 +1506,12 @@ function startScan(){
     scanCanvas=document.createElement('canvas');
     scanCtx=scanCanvas.getContext('2d',{willReadFrequently:true});
     scanDetecting=false;
-    v.addEventListener('loadedmetadata',()=>{ scanLoop(); });
-  }).catch(()=>{
-    showScanMsg('No se pudo acceder a la cámara. Ingresa el código manualmente abajo.','err');
+    v.onloadedmetadata=()=>{ v.play(); };
+    v.onplaying=()=>{ scanLoop(); };
+    // Fallback: start loop after 1.5s regardless
+    setTimeout(()=>{ if(scanStream&&!scanDetecting)scanLoop(); },1500);
+  }).catch(err=>{
+    showScanMsg('No se pudo acceder a la cámara: '+err.message,'err');
     document.getElementById('scan-start-btn').style.display='inline-flex';
   });
 }
@@ -1507,48 +1519,48 @@ function startScan(){
 function scanLoop(){
   if(!scanStream||scanDetecting)return;
   const v=document.getElementById('scan-video');
-  if(!v||v.readyState<2||v.videoWidth===0){
+  if(!v){return;}
+  // If video not ready yet, retry
+  if(v.videoWidth===0||v.readyState<2){
     scanRAF=requestAnimationFrame(scanLoop);
     return;
   }
-  scanCanvas.width=v.videoWidth;
-  scanCanvas.height=v.videoHeight;
+  // Draw frame
+  if(scanCanvas.width!==v.videoWidth)scanCanvas.width=v.videoWidth;
+  if(scanCanvas.height!==v.videoHeight)scanCanvas.height=v.videoHeight;
   scanCtx.drawImage(v,0,0);
-  try{
-    const img=scanCtx.getImageData(0,0,scanCanvas.width,scanCanvas.height);
-    // Try both normal and inverted
-    let code=jsQR(img.data,img.width,img.height,{inversionAttempts:'attemptBoth'});
-    if(code&&code.data){
-      scanDetecting=true;
-      const qrData=code.data.trim();
-      // Visual feedback
-      showScanMsg('✅ Código detectado: <strong>'+qrData+'</strong>','info');
-      // Try to find item
-      const item=inv.find(i=>i.period===activePeriod&&(
-        i.id===qrData||
-        i.id.toUpperCase()===qrData.toUpperCase()||
-        i.name.toLowerCase()===qrData.toLowerCase()
-      ));
-      if(item){
+  let img;
+  try{ img=scanCtx.getImageData(0,0,scanCanvas.width,scanCanvas.height); }
+  catch(e){ scanRAF=requestAnimationFrame(scanLoop); return; }
+  // Decode
+  const code=jsQR(img.data,img.width,img.height,{inversionAttempts:'attemptBoth'});
+  showScanDebug('Frame: '+img.width+'×'+img.height+' | jsQR: '+(code?'✅ '+code.data.slice(0,20):'buscando...'));
+  if(code&&code.data&&code.data.trim()){
+    scanDetecting=true;
+    const qrData=code.data.trim();
+    showScanMsg('✅ Código detectado: <strong>'+qrData+'</strong>','info');
+    const item=inv.find(i=>i.period===activePeriod&&(
+      i.id===qrData||
+      i.id.toUpperCase()===qrData.toUpperCase()||
+      i.name.toLowerCase()===qrData.toLowerCase()
+    ));
+    if(item){
+      setTimeout(()=>{
+        stopScan();
+        closeScanModal();
+        document.getElementById('move-search').value=item.name;
+        pickItem(item.id);
         setTimeout(()=>{
-          stopScan();
-          closeScanModal();
-          document.getElementById('move-search').value=item.name;
-          pickItem(item.id);
-          setTimeout(()=>{
-            const box=document.getElementById('move-item-box');
-            if(box)box.scrollIntoView({behavior:'smooth',block:'center'});
-          },120);
-        },400);
-        return;
-      } else {
-        showScanMsg('⚠ Código <strong>'+qrData+'</strong> no encontrado en inventario del periodo actual.','err');
-        // Resume scanning after 2s
-        setTimeout(()=>{ scanDetecting=false; scanRAF=requestAnimationFrame(scanLoop); },2000);
-        return;
-      }
+          const box=document.getElementById('move-item-box');
+          if(box)box.scrollIntoView({behavior:'smooth',block:'center'});
+        },150);
+      },400);
+    } else {
+      showScanMsg('⚠ Código <strong>'+qrData+'</strong> no está en el inventario. Prueba ingresarlo manualmente.','err');
+      setTimeout(()=>{ scanDetecting=false; if(scanStream)scanRAF=requestAnimationFrame(scanLoop); },2500);
     }
-  } catch(e){}
+    return;
+  }
   scanRAF=requestAnimationFrame(scanLoop);
 }
 
@@ -1576,7 +1588,14 @@ function applyScanCode(){
     if(box)box.scrollIntoView({behavior:'smooth',block:'center'});
   },120);
 }
-function showScanMsg(msg,type){const el=document.getElementById('scan-msg');if(el)el.innerHTML=`<div class="msg m-${type==='err'?'err':'info'}">${msg}</div>`;}
+function showScanMsg(msg,type){
+  const el=document.getElementById('scan-msg');
+  if(el)el.innerHTML=`<div class="msg m-${type==='err'?'err':'info'}">${msg}</div>`;
+}
+function showScanDebug(msg){
+  const el=document.getElementById('scan-debug');
+  if(el){el.style.display='block';el.textContent=msg;}
+}
 
 /* ══ INVENTORY ══ */
 function renderInventory(){
