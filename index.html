@@ -8,6 +8,107 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.min.js"></script>
+<script type="module">
+import{initializeApp}from'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
+import{getFirestore,doc,getDoc,setDoc,collection,addDoc,getDocs,onSnapshot,deleteDoc,query,orderBy}from'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
+
+const firebaseConfig={
+  apiKey:"AIzaSyBxfHoT7YUTUn4ev8bWHetJB8_iJpOHyK0",
+  authDomain:"dera-almacen.firebaseapp.com",
+  projectId:"dera-almacen",
+  storageBucket:"dera-almacen.firebasestorage.app",
+  messagingSenderId:"231903004532",
+  appId:"1:231903004532:web:625146e76f4a887a95ce21"
+};
+
+const fbApp=initializeApp(firebaseConfig);
+const db=getFirestore(fbApp);
+
+/* ── Guardar inventario completo ── */
+async function fbSaveInv(){
+  await setDoc(doc(db,'dera','inventario'),{inv,periods,activePeriod,zones,ts:Date.now()});
+}
+/* ── Guardar personal completo ── */
+async function fbSavePersonal(){
+  await setDoc(doc(db,'dera','personal'),{personal,ts:Date.now()});
+}
+/* ── Agregar movimiento al historial ── */
+async function fbAddHist(entry){
+  await addDoc(collection(db,'historial'),{...entry,_d:entry._d?entry._d.toISOString():new Date().toISOString()});
+}
+/* ── Cargar todo desde Firestore ── */
+async function fbLoad(){
+  showSyncStatus('⏳ Conectando con Firebase...','info');
+  try{
+    // Inventario
+    const invSnap=await getDoc(doc(db,'dera','inventario'));
+    if(invSnap.exists()){
+      const d=invSnap.data();
+      inv=d.inv||inv;
+      periods=d.periods||periods;
+      activePeriod=d.activePeriod||activePeriod;
+      if(d.zones)zones=d.zones;
+    } else {
+      // Primera vez — subir seed
+      await fbSaveInv();
+    }
+    // Personal
+    const perSnap=await getDoc(doc(db,'dera','personal'));
+    if(perSnap.exists()&&perSnap.data().personal){
+      personal=perSnap.data().personal;
+    } else {
+      await fbSavePersonal();
+    }
+    // Historial
+    const hSnap=await getDocs(query(collection(db,'historial'),orderBy('_d','asc')));
+    hist=[];
+    hSnap.forEach(d=>{
+      const h={...d.data(),_fbId:d.id};
+      h._d=new Date(h._d||h.date);
+      hist.push(h);
+    });
+    showSyncStatus('✅ Sincronizado','ok');
+    setTimeout(()=>hideSyncStatus(),3000);
+  } catch(e){
+    showSyncStatus('⚠ Sin conexión — modo local','warn');
+    console.warn('Firebase error:',e);
+  }
+  renderPeriodList();
+  updatePeriodLabels();
+  renderHome();
+  renderFloorMap();
+  renderZones();
+}
+
+/* ── Escuchar cambios en tiempo real (historial) ── */
+function fbListen(){
+  onSnapshot(collection(db,'historial'),snap=>{
+    hist=[];
+    snap.forEach(d=>{
+      const h={...d.data(),_fbId:d.id};
+      h._d=new Date(h._d||h.date);
+      hist.push(h);
+    });
+    hist.sort((a,b)=>a._d-b._d);
+    renderHome();
+    if(document.getElementById('page-dashboard').classList.contains('active'))renderDashboard();
+    if(document.getElementById('page-history').classList.contains('active'))renderHistory();
+  });
+}
+
+/* ── Exponer funciones al scope global ── */
+window.fbSaveInv=fbSaveInv;
+window.fbSavePersonal=fbSavePersonal;
+window.fbAddHist=fbAddHist;
+window.fbLoad=fbLoad;
+window.fbListen=fbListen;
+
+/* ── Arrancar ── */
+window.addEventListener('load',()=>{
+  // Esperar a que init() haya corrido
+  setTimeout(()=>{ fbLoad().then(()=>fbListen()); },300);
+});
+</script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0;}
 :root{
@@ -252,6 +353,10 @@ tr:hover td{background:var(--bg);}
   margin-right:4px;
 }
 .mob-title{display:none;font-size:13px;font-weight:700;color:#fff;white-space:nowrap;}
+.sync-status{font-size:11px;padding:3px 9px;border-radius:20px;font-weight:500;display:none;white-space:nowrap;}
+.sync-status.info{display:inline-flex;background:rgba(255,255,255,.12);color:rgba(255,255,255,.8);}
+.sync-status.ok{display:inline-flex;background:rgba(80,200,100,.2);color:#7defa0;}
+.sync-status.warn{display:inline-flex;background:rgba(255,180,0,.15);color:#ffd166;}
 /* Overlay behind sidebar on mobile */
 .sidebar-overlay{
   display:none;
@@ -327,6 +432,7 @@ tr:hover td{background:var(--bg);}
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
   </button>
   <div class="mob-title">DERA · Almacén</div>
+  <span id="sync-status" class="sync-status"></span>
   <div class="topbar-brand">
     <div class="brand-name">DERA-Control de Almacén</div>
     <div class="brand-sub">MySys</div>
@@ -385,6 +491,10 @@ tr:hover td{background:var(--bg);}
         </div>
       </div>
     </div>
+    <button class="tb-btn" onclick="resetDB()" title="Resetear base de datos" style="opacity:.6;">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-4.95"/></svg>
+      <span>Reset</span>
+    </button>
   </div>
 </div>
 
@@ -1001,21 +1111,62 @@ let zones=[
   {name:'Zona E',alm:'ALM-03',class:'Textiles y vestimenta',cap:250,used:69,temp:'Ambiente',resp:'Pedro S.',desc:'Colgadores y cajas. Uniformes e indumentaria.',col:'fz-e'},
 ];
 
+/* ══ PERSISTENCIA ══ */
+const DB_KEY='dera_almacen_v1';
+function showSyncStatus(msg,type){
+  const el=document.getElementById('sync-status');
+  if(!el)return;
+  el.textContent=msg;
+  el.className='sync-status '+type;
+}
+function hideSyncStatus(){
+  const el=document.getElementById('sync-status');
+  if(el)el.className='sync-status';
+}
+function saveDB(){
+  try{
+    localStorage.setItem(DB_KEY,JSON.stringify({inv,hist,periods,activePeriod,zones,personal:personal||[]}));
+  }catch(e){console.warn('saveDB error:',e);}
+  // Sync to Firebase if available
+  if(typeof window.fbSaveInv==='function'){
+    showSyncStatus('⏳ Guardando...','info');
+    window.fbSaveInv().then(()=>{
+      showSyncStatus('✅ Guardado','ok');
+      setTimeout(hideSyncStatus,2500);
+    }).catch(()=>showSyncStatus('⚠ Error al guardar','warn'));
+  }
+}
+function savePersonalDB(){
+  saveDB();
+  if(typeof window.fbSavePersonal==='function')window.fbSavePersonal();
+}
+function loadDB(){
+  try{
+    const raw=localStorage.getItem(DB_KEY);
+    if(!raw)return false;
+    const d=JSON.parse(raw);
+    inv=d.inv||[];
+    hist=(d.hist||[]).map(h=>({...h,_d:new Date(h._d||h.date)}));
+    periods=d.periods||['Sem I-2026'];
+    activePeriod=d.activePeriod||'Sem I-2026';
+    if(d.zones)zones=d.zones;
+    if(d.personal)personal=d.personal;
+    return true;
+  }catch(e){return false;}
+}
+function resetDB(){
+  if(!confirm('Borrar todos los datos y volver al estado inicial?'))return;
+  localStorage.removeItem(DB_KEY);location.reload();
+}
+
 /* ══ INIT ══ */
 function init(){
-  periods=['Sem I-2026'];
-  inv=SEED.map((d,i)=>({id:'INS-'+String(i+1).padStart(3,'0'),cat:d.cat,name:d.name,qty:d.qty,unit:d.unit,sub1:d.sub1,sub2:d.sub2,equiv1:d.equiv1||null,equiv2:d.equiv2||null,brand:d.brand,type:d.type,minStock:5,period:'Sem I-2026'}));
-  initPersonal();
-  // seed history
-  const resp=['Carlos M.','Ana L.','Luis R.','Rosa V.','Pedro S.'];
-  for(let d=13;d>=0;d--){
-    for(let k=0;k<Math.floor(Math.random()*5)+1;k++){
-      const item=inv[Math.floor(Math.random()*20)];
-      const type=Math.random()>.4?'ingreso':'salida';
-      const qty=Math.floor(Math.random()*5)+1;
-      const dt=new Date();dt.setDate(dt.getDate()-d);
-      hist.push({id:item.id,name:item.name,cat:item.cat,unit:item.unit,type,qty,responsible:resp[Math.floor(Math.random()*resp.length)],note:'',date:dt.toLocaleDateString('es-PE')+' '+dt.toLocaleTimeString('es-PE',{hour:'2-digit',minute:'2-digit'}),_d:dt,period:'Sem I-2026'});
-    }
+  const loaded=loadDB();
+  if(!loaded){
+    periods=['Sem I-2026'];
+    inv=SEED.map((d,i)=>({id:'INS-'+String(i+1).padStart(3,'0'),cat:d.cat,name:d.name,qty:d.qty,unit:d.unit,sub1:d.sub1,sub2:d.sub2,equiv1:d.equiv1||null,equiv2:d.equiv2||null,brand:d.brand,type:d.type,minStock:5,period:'Sem I-2026'}));
+    initPersonal();
+    saveDB();
   }
   renderPeriodList();
   updatePeriodLabels();
@@ -1301,6 +1452,11 @@ function confirmMove(type){
   });
   const extraLine=type==='salida'?'<br><span style="font-size:11px;opacity:.75;">➤ '+destNom+' · '+destArea+' · '+motivo+'</span>':'';
   document.getElementById('move-msg-home').innerHTML='<div class="msg m-ok">✅ '+(type==='ingreso'?'Ingreso':'Salida')+' de <strong>'+qtyRaw+' '+unitLabel+'</strong> registrado.'+convLine+extraLine+'<br>Stock actual: <strong>'+item.qty+' '+item.unit+'</strong></div>';
+  if(typeof window.fbAddHist==='function'){
+    const lastEntry=hist[hist.length-1];
+    window.fbAddHist(lastEntry).catch(e=>console.warn('fbAddHist:',e));
+  }
+  saveDB();
   clearMoveForm();renderHome();
 }
 
@@ -1321,6 +1477,7 @@ function closeScanModal(){stopScan();document.getElementById('scan-modal').class
 let scanRAF=null;
 let scanCanvas=null;
 let scanCtx=null;
+let scanDetecting=false;
 
 function startScan(){
   showScanMsg('📷 Iniciando cámara...','info');
@@ -1337,50 +1494,58 @@ function startScan(){
     document.getElementById('scan-start-btn').style.display='none';
     document.getElementById('scan-stop-btn').style.display='inline-flex';
     showScanMsg('🔍 Apunta la cámara al código QR...','info');
-    // Create offscreen canvas for jsQR
     scanCanvas=document.createElement('canvas');
-    scanCtx=scanCanvas.getContext('2d');
+    scanCtx=scanCanvas.getContext('2d',{willReadFrequently:true});
+    scanDetecting=false;
     v.addEventListener('loadedmetadata',()=>{ scanLoop(); });
-  }).catch(e=>{
+  }).catch(()=>{
     showScanMsg('No se pudo acceder a la cámara. Ingresa el código manualmente abajo.','err');
     document.getElementById('scan-start-btn').style.display='inline-flex';
   });
 }
 
 function scanLoop(){
+  if(!scanStream||scanDetecting)return;
   const v=document.getElementById('scan-video');
-  if(!scanStream||!v||v.readyState<2){
+  if(!v||v.readyState<2||v.videoWidth===0){
     scanRAF=requestAnimationFrame(scanLoop);
     return;
   }
-  scanCanvas.width=v.videoWidth||320;
-  scanCanvas.height=v.videoHeight||240;
-  scanCtx.drawImage(v,0,0,scanCanvas.width,scanCanvas.height);
+  scanCanvas.width=v.videoWidth;
+  scanCanvas.height=v.videoHeight;
+  scanCtx.drawImage(v,0,0);
   try{
     const img=scanCtx.getImageData(0,0,scanCanvas.width,scanCanvas.height);
-    const code=jsQR(img.data,img.width,img.height,{inversionAttempts:'dontInvert'});
+    // Try both normal and inverted
+    let code=jsQR(img.data,img.width,img.height,{inversionAttempts:'attemptBoth'});
     if(code&&code.data){
-      // Found a QR — try to match insumo
+      scanDetecting=true;
       const qrData=code.data.trim();
+      // Visual feedback
+      showScanMsg('✅ Código detectado: <strong>'+qrData+'</strong>','info');
+      // Try to find item
       const item=inv.find(i=>i.period===activePeriod&&(
         i.id===qrData||
-        i.id.toLowerCase()===qrData.toLowerCase()||
+        i.id.toUpperCase()===qrData.toUpperCase()||
         i.name.toLowerCase()===qrData.toLowerCase()
       ));
       if(item){
-        // Success
-        stopScan();
-        closeScanModal();
-        document.getElementById('move-search').value=item.name;
-        pickItem(item.id);
         setTimeout(()=>{
-          const box=document.getElementById('move-item-box');
-          if(box)box.scrollIntoView({behavior:'smooth',block:'center'});
-        },120);
+          stopScan();
+          closeScanModal();
+          document.getElementById('move-search').value=item.name;
+          pickItem(item.id);
+          setTimeout(()=>{
+            const box=document.getElementById('move-item-box');
+            if(box)box.scrollIntoView({behavior:'smooth',block:'center'});
+          },120);
+        },400);
         return;
       } else {
-        showScanMsg('⚠ Código leído: <strong>'+qrData+'</strong> — no encontrado en inventario.','err');
-        // Keep scanning
+        showScanMsg('⚠ Código <strong>'+qrData+'</strong> no encontrado en inventario del periodo actual.','err');
+        // Resume scanning after 2s
+        setTimeout(()=>{ scanDetecting=false; scanRAF=requestAnimationFrame(scanLoop); },2000);
+        return;
       }
     }
   } catch(e){}
@@ -1393,7 +1558,7 @@ function stopScan(){
   const w=document.getElementById('scan-video-wrap');if(w)w.style.display='none';
   const a=document.getElementById('scan-start-btn'),b=document.getElementById('scan-stop-btn');
   if(a)a.style.display='none';if(b)b.style.display='none';
-  scanCanvas=null;scanCtx=null;
+  scanCanvas=null;scanCtx=null;scanDetecting=false;
 }
 function applyScanCode(){
   const code=document.getElementById('scan-manual-code').value.trim();
@@ -1519,6 +1684,7 @@ function addItem(){
   if(inv.find(i=>i.name.toLowerCase()===name.toLowerCase()&&i.period===activePeriod)){msgEl.innerHTML='<div class="msg m-err">Ya existe ese insumo en este periodo.</div>';return;}
   const id=genId(name);
   inv.push({id,cat,name,qty:parseInt(document.getElementById('a-qty').value)||0,unit:document.getElementById('a-unit').value||'Unidad',sub1:document.getElementById('a-sub1').value||'NA',sub2:'NA',equiv1:parseFloat(document.getElementById('a-equiv1').value)||null,equiv2:null,brand:document.getElementById('a-brand').value||'NA',type:document.getElementById('a-type').value||'NA',minStock:parseInt(document.getElementById('a-min').value)||5,period:activePeriod});
+  saveDB();
   msgEl.innerHTML=`<div class="msg m-ok">✅ Insumo <strong>${name}</strong> agregado — ID: <strong>${id}</strong></div>`;
   ['a-name','a-unit','a-sub1','a-equiv1','a-brand','a-type'].forEach(f=>document.getElementById(f).value='');
   document.getElementById('a-qty').value='0';document.getElementById('a-cat').value='';document.getElementById('a-min').value='5';
@@ -1639,7 +1805,7 @@ function editZone(i){
   document.getElementById('zone-msg').innerHTML='';
   const c=document.getElementById('add-zone-card');c.style.display='block';c.dataset.editing=i;c.scrollIntoView({behavior:'smooth'});
 }
-function deleteZone(i){if(confirm('¿Eliminar esta zona?')){zones.splice(i,1);renderZones();renderFloorMap();}}
+function deleteZone(i){if(confirm('¿Eliminar esta zona?')){zones.splice(i,1);renderZones();renderFloorMap();saveDB();}}
 function saveZone(){
   const name=document.getElementById('z-name').value.trim();
   const alm=document.getElementById('z-alm').value.trim();
@@ -1654,6 +1820,7 @@ function saveZone(){
   const ei=document.getElementById('add-zone-card').dataset.editing;
   if(ei!==''){zones[parseInt(ei)]={name,alm,class:cls,cap,used,temp,resp,desc,col};}
   else zones.push({name,alm,class:cls,cap,used,temp,resp,desc,col});
+  saveDB();
   document.getElementById('add-zone-card').style.display='none';
   renderZones();renderFloorMap();
 }
@@ -1675,6 +1842,7 @@ function doImport(e){
         if(ex){ex.qty=qty;updated++;}
         else{inv.push({id:'INS-'+String(inv.length+1).padStart(3,'0'),cat,name,qty,unit:String(r[3]||'Unidad'),sub1:String(r[4]||'NA'),sub2:String(r[5]||'NA'),brand:String(r[6]||'NA'),type:String(r[7]||'NA'),minStock:5,period:activePeriod});added++;}
       });
+      saveDB();
       alert(`✅ Importación completada: ${added} nuevos, ${updated} actualizados.\nPeriodo: ${activePeriod}`);
       renderHome();
     }catch(err){alert('Error al leer el archivo. Verifica el formato.');}
@@ -1871,12 +2039,13 @@ function savePersonal(){
   };
   if(personalEditIdx!==null)personal[personalEditIdx]=obj;
   else personal.push(obj);
+  savePersonalDB();
   document.getElementById('personal-form-card').style.display='none';
   renderPersonal();
 }
 function deletePersonal(idx){
   if(!confirm('¿Eliminar a '+fullName(personal[idx])+'?'))return;
-  personal.splice(idx,1);renderPersonal();
+  personal.splice(idx,1);savePersonalDB();renderPersonal();
 }
 function exportPersonal(){
   const csv='ID,Apellido P.,Apellido M.,Nombres,DNI,Género,Teléfono,Régimen,Dependencia,Puesto,Correo\n'+
