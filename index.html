@@ -923,7 +923,7 @@ tr:hover td{background:var(--bg);}
     <div id="page-history" class="page">
       <div class="ph">
         <div><div class="ph-title">Historial de movimientos</div><div class="ph-sub" id="hist-period-sub"></div></div>
-        <button class="btn" onclick="exportReport('movimientos')">⬇ Exportar CSV</button>
+        <button class="btn" onclick="exportReport('movimientos')">⬇ Exportar Excel</button>
       </div>
       <div class="card">
         <div class="card-hd">
@@ -1977,40 +1977,65 @@ function doImport(e){
 }
 
 /* ══ REPORTS ══ */
+function xlsxDownload(sheets,filename){
+  const wb=XLSX.utils.book_new();
+  sheets.forEach(s=>{
+    const ws=XLSX.utils.aoa_to_sheet(s.data);
+    const cols=s.data[0]?s.data[0].map((_,ci)=>({wch:Math.min(40,Math.max(10,...s.data.map(r=>String(r[ci]||'').length)))})):[];
+    ws['!cols']=cols;
+    XLSX.utils.book_append_sheet(wb,ws,s.name);
+  });
+  XLSX.writeFile(wb,filename);
+}
+
 function exportReport(type){
   const pi=periodInv(),ph=periodHist();
-  let csv='',filename='';
   const period=activePeriod;
+  const statusLabel={ok:'Normal',low:'Stock bajo',out:'Sin stock'};
 
   if(type==='inventario_actual'){
-    csv='ID,Categoría,Insumo,Stock,Unidad,Marca,Tipo,Estado,Periodo\n'+
-      pi.map(i=>[i.id,i.cat,i.name,i.qty,i.unit,i.brand,i.type,{ok:'Normal',low:'Stock bajo',out:'Sin stock'}[st(i)],period].map(v=>`"${v}"`).join(',')).join('\n');
-    filename=`inventario_actual_${period.replace(/\s/g,'-')}.csv`;
+    xlsxDownload([{name:'Inventario Actual',data:[
+      ['ID','Categoría','Insumo','Stock','Unidad','Marca','Tipo','Estado','Periodo'],
+      ...pi.map(i=>[i.id,i.cat,i.name,i.qty,i.unit,i.brand,i.type,statusLabel[st(i)],period])
+    ]}],`inventario_actual_${period.replace(/\s/g,'-')}.xlsx`);
   }
   else if(type==='inventario_base'){
-    csv='ID,Categoría,Insumo,Cantidad Base,Unidad,Marca,Tipo,Stock Mínimo\n'+
-      SEED.map((d,i)=>['INS-'+String(i+1).padStart(3,'0'),d.cat,d.name,d.qty,d.unit,d.brand,d.type,5].map(v=>`"${v}"`).join(',')).join('\n');
-    filename='inventario_base.csv';
+    xlsxDownload([{name:'Inventario Base',data:[
+      ['ID','Categoría','Insumo','Cantidad Base','Unidad','Marca','Tipo','Stock Mínimo'],
+      ...SEED.map((d,i)=>['INS-'+String(i+1).padStart(3,'0'),d.cat,d.name,d.qty,d.unit,d.brand,d.type,5])
+    ]}],'inventario_base.xlsx');
   }
   else if(type==='movimientos'){
-    csv='Fecha,Tipo,Insumo,Categoría,Cantidad,Unidad,Responsable,Destinatario,Área Destinatario,Motivo,Observación,Periodo\n'+
-      ph.slice().reverse().map(h=>[h.date,h.type,h.name,h.cat,h.qty,h.unit,h.responsible||'',h.destNom||'',h.destArea||'',h.motivo||'',h.note||'',h.period].map(v=>`"${v}"`).join(',')).join('\n');
-    filename=`movimientos_${period.replace(/\s/g,'-')}.csv`;
+    xlsxDownload([{name:'Movimientos',data:[
+      ['Fecha','Tipo','Insumo','Categoría','Cantidad','Unidad','Responsable','Destinatario','Área','Motivo','Observación','Periodo'],
+      ...ph.slice().reverse().map(h=>[h.date,h.type==='ingreso'?'Ingreso':'Salida',h.name,h.cat,h.qty,h.unit,h.responsible||'',h.destNom||'',h.destArea||'',h.motivo||'',h.note||'',h.period])
+    ]}],`movimientos_${period.replace(/\s/g,'-')}.xlsx`);
   }
   else if(type==='reporte_general'){
     const total=pi.length,low=pi.filter(i=>st(i)==='low').length,out=pi.filter(i=>st(i)==='out').length;
     const ingresos=ph.filter(h=>h.type==='ingreso'),salidas=ph.filter(h=>h.type==='salida');
-    const catLines=[...new Set(pi.map(i=>i.cat))].map(c=>{const items=pi.filter(i=>i.cat===c);return`"${c}","${items.length}","${items.reduce((s,i)=>s+i.qty,0)}","${items.filter(i=>st(i)!=='ok').length}"`});
+    const cats=[...new Set(pi.map(i=>i.cat))];
     const topUsed=ph.reduce((acc,h)=>{acc[h.name]=(acc[h.name]||0)+(h.type==='salida'?h.qty:0);return acc;},{});
-    const topArr=Object.entries(topUsed).sort((a,b)=>b[1]-a[1]).slice(0,10);
-    csv=`REPORTE GENERAL DE INVENTARIO\nPeriodo: ${period}\nFecha: ${new Date().toLocaleDateString('es-PE')}\n\n`+
-      `RESUMEN GENERAL\nTotal insumos,${total}\nStock bajo,${low}\nSin stock,${out}\nTotal movimientos,${ph.length}\nIngresos,${ingresos.length}\nSalidas,${salidas.length}\n\n`+
-      `POR CATEGORÍA\nCategoría,N° Insumos,Stock Total,Con Alertas\n`+catLines.join('\n')+
-      `\n\nINSUMOS MÁS USADOS (salidas)\nInsumo,Total unidades salidas\n`+topArr.map(([n,q])=>`"${n}",${q}`).join('\n')+
-      `\n\nALERTAS DE STOCK\nID,Insumo,Categoría,Stock Actual,Mínimo,Estado\n`+pi.filter(i=>st(i)!=='ok').map(i=>`"${i.id}","${i.name}","${i.cat}",${i.qty},${i.minStock},"${{ok:'Normal',low:'Stock bajo',out:'Sin stock'}[st(i)]}"`).join('\n');
-    filename=`reporte_general_${period.replace(/\s/g,'-')}.csv`;
+    xlsxDownload([
+      {name:'Resumen',data:[
+        ['REPORTE GENERAL DE INVENTARIO'],['Periodo',period],['Fecha',new Date().toLocaleDateString('es-PE')],[],
+        ['RESUMEN'],['Total insumos',total],['Stock bajo',low],['Sin stock',out],
+        ['Total movimientos',ph.length],['Ingresos',ingresos.length],['Salidas',salidas.length],
+      ]},
+      {name:'Por Categoría',data:[
+        ['Categoría','N° Insumos','Stock Total','Con Alertas'],
+        ...cats.map(cat=>{const it=pi.filter(i=>i.cat===cat);return[cat,it.length,it.reduce((s,i)=>s+i.qty,0),it.filter(i=>st(i)!=='ok').length];})
+      ]},
+      {name:'Alertas',data:[
+        ['ID','Insumo','Categoría','Stock Actual','Mínimo','Estado'],
+        ...pi.filter(i=>st(i)!=='ok').map(i=>[i.id,i.name,i.cat,i.qty,i.minStock,statusLabel[st(i)]])
+      ]},
+      {name:'Más Usados',data:[
+        ['Insumo','Total Salidas'],
+        ...Object.entries(topUsed).sort((a,b)=>b[1]-a[1]).slice(0,10)
+      ]},
+    ],`reporte_general_${period.replace(/\s/g,'-')}.xlsx`);
   }
-  const a=document.createElement('a');a.href=URL.createObjectURL(new Blob(['\uFEFF'+csv],{type:'text/csv;charset=utf-8;'}));a.download=filename;a.click();
 }
 
 /* ══ PERSONAL ══ */
@@ -2173,10 +2198,11 @@ function deletePersonal(idx){
   personal.splice(idx,1);savePersonalDB();renderPersonal();
 }
 function exportPersonal(){
-  const csv='ID,Apellido P.,Apellido M.,Nombres,DNI,Género,Teléfono,Régimen,Dependencia,Puesto,Correo\n'+
-    personal.map(p=>[p.id,p.ap,p.am,p.nom,p.dni,p.gen,p.tel,p.reg,p.dep,p.puesto,p.email].map(v=>`"${(v||'').replace(/"/g,'""')}"`).join(',')).join('\n');
-  const a=document.createElement('a');a.href=URL.createObjectURL(new Blob(['\uFEFF'+csv],{type:'text/csv;charset=utf-8;'}));
-  a.download='personal_DERA.csv';a.click();
+  const data=[
+    ['N°','Apellido P.','Apellido M.','Nombres','DNI','Género','Teléfono','Régimen','Dependencia','Puesto','Correo'],
+    ...personal.map((p,i)=>[i+1,p.ap,p.am,p.nom,p.dni,p.gen,p.tel,p.reg,p.dep,p.puesto,p.email])
+  ];
+  xlsxDownload([{name:'Personal DERA',data}],'personal_DERA.xlsx');
 }
 
 /* ══ BOOT ══ */
