@@ -1695,42 +1695,60 @@ function generarConformidad(entry){
   const ml=15,mr=15,mt=15;
   let y=mt;
 
-  // ── Header ──
-  // Logo cell
+  // ── Header — exact replica of F01-PS05.3.01.1 ──
   doc.setDrawColor(0);doc.setLineWidth(0.3);
-  doc.rect(ml,y,40,20);
-  try{doc.addImage(LOGO_B64,'PNG',ml+1,y+1,38,18);}catch(e){}
-  // Formato cell
-  doc.rect(ml+40,y,(pw-ml-mr-40)*0.6,10);
+  const cw=pw-ml-mr; // 180mm usable
+  const lw=30;       // logo column width
+  const mw=105;      // middle column (FORMATO / CONFORMIDAD)
+  const rw2=cw-lw-mw; // right column (~45mm)
+  const hTot=22;     // total header height
+
+  // Outer border
+  doc.rect(ml,y,cw,hTot);
+
+  // Logo cell (left, full height)
+  doc.rect(ml,y,lw,hTot);
+  try{doc.addImage(LOGO_B64,'PNG',ml+1,y+1,lw-2,hTot-2);}catch(e){}
+
+  // Middle column — row 1: FORMATO (8mm)
+  doc.rect(ml+lw,y,mw,8);
   doc.setFont('helvetica','bold');doc.setFontSize(9);
-  doc.text('FORMATO',ml+40+(pw-ml-mr-40)*0.3,y+6,{align:'center'});
-  // Right cells
-  const rc=ml+40+(pw-ml-mr-40)*0.6;
-  const rw=pw-mr-rc;
-  doc.rect(rc,y,rw,10);
-  doc.setFontSize(8);doc.setFont('helvetica','normal');
-  doc.text('F01-PS05.3.01.1',rc+rw/2,y+6,{align:'center'});
-  // Second row
-  doc.rect(ml+40,y+10,(pw-ml-mr-40)*0.6,10);
-  doc.setFont('helvetica','bold');doc.setFontSize(10);
-  doc.text('CONFORMIDAD DE ENTREGA',ml+40+(pw-ml-mr-40)*0.3,y+17,{align:'center'});
-  doc.rect(rc,y+10,rw/2,5);doc.rect(rc+rw/2,y+10,rw/2,5);
+  doc.text('FORMATO',ml+lw+mw/2,y+5.5,{align:'center'});
+
+  // Middle column — row 2: CONFORMIDAD DE ENTREGA (14mm)
+  doc.rect(ml+lw,y+8,mw,hTot-8);
+  doc.setFont('helvetica','bold');doc.setFontSize(11);
+  doc.text('CONFORMIDAD DE ENTREGA',ml+lw+mw/2,y+8+8,{align:'center'});
+
+  // Right column — row 1: F01-PS05.3.01.1 (8mm, full width)
+  const rx=ml+lw+mw;
+  doc.rect(rx,y,rw2,8);
+  doc.setFont('helvetica','bold');doc.setFontSize(8);
+  doc.text('F01-PS05.3.01.1',rx+rw2/2,y+5.5,{align:'center'});
+
+  // Right column — row 2a: Versión + Fecha (7mm, split in 2)
+  doc.rect(rx,y+8,rw2/2,7);
+  doc.rect(rx+rw2/2,y+8,rw2/2,7);
   doc.setFont('helvetica','normal');doc.setFontSize(7);
-  doc.text('Versión: 01',rc+rw/4,y+14,{align:'center'});
-  doc.text('Fecha: 15-03-26',rc+rw*3/4,y+14,{align:'center'});
-  doc.rect(rc,y+15,rw/2,5);doc.rect(rc+rw/2,y+15,rw/2,5);
-  doc.text('Página 1 de 1',rc+rw/2,y+19,{align:'center'});
-  y+=25;
+  doc.text('Versión: 01',rx+rw2/4,y+12.5,{align:'center'});
+  doc.text('Fecha: 15-03-26',rx+rw2*3/4,y+12.5,{align:'center'});
+
+  // Right column — row 2b: Página 1 de 1 (7mm, full width)
+  doc.rect(rx,y+15,rw2,hTot-15);
+  doc.text('Página 1 de 1',rx+rw2/2,y+19.5,{align:'center'});
+
+  y+=hTot+4;
 
   // ── Código ──
-  const cw=pw-ml-mr;
+
+
   doc.setFont('helvetica','bold');doc.setFontSize(11);
-  doc.rect(ml,y,cw/2,8);
-  doc.text('Código¹:',ml+cw/4,y+5.5,{align:'center'});
-  doc.rect(ml+cw/2,y,cw/2,8);
+  doc.rect(ml,y,cw/2,9);
+  doc.text('Código¹:',ml+cw/4,y+6,{align:'center'});
+  doc.rect(ml+cw/2,y,cw/2,9);
   doc.setFont('helvetica','normal');
-  doc.text(entry.codigo||'CE-N°XXX-XXXX-UPSA',ml+cw*3/4,y+5.5,{align:'center'});
-  y+=14;
+  doc.text(entry.codigo||'CE-N°XXX-XXXX-UPSA',ml+cw*3/4,y+6,{align:'center'});
+  y+=15;
 
   // ── Helper: section table ──
   function drawSection(title,rows){
