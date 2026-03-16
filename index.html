@@ -1331,14 +1331,17 @@ function hHTML(h){
     ...(!isIn&&h.destNom?[['Destinatario',h.destNom],['Área',h.destArea||'—']]:[] ),
     ...(h.note?[['Observación',h.note]]:[]),
     ['Fecha', h.date],
-    ...(h.firma?[['Firma','<img src="'+h.firma+'" style="max-width:180px;border:1px solid var(--border);border-radius:4px;margin-top:4px;"/>']]:[] ),
+    ...(h.firma?[['Firma','__SIG__'+h.firma]]:[] ),
     ['Periodo', h.period],
   ];
-  const detailHTML=detailRows.map(([l,v])=>`
-    <div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--border);font-size:12px;">
-      <span style="color:var(--text3);font-weight:500;">${l}</span>
-      <span style="color:var(--text);text-align:right;max-width:60%;">${v}</span>
-    </div>`).join('');
+  const detailHTML=detailRows.map(([l,v])=>{
+    const isSig=typeof v==='string'&&v.startsWith('__SIG__');
+    const valHTML=isSig?`<img src="${v.slice(7)}" style="max-width:160px;border:1px solid var(--border);border-radius:4px;display:block;margin-top:2px;" />`:v;
+    return`<div style="display:flex;justify-content:space-between;align-items:flex-start;padding:5px 0;border-bottom:1px solid var(--border);font-size:12px;">
+      <span style="color:var(--text3);font-weight:500;flex-shrink:0;margin-right:8px;">${l}</span>
+      <span style="color:var(--text);text-align:right;">${valHTML}</span>
+    </div>`;
+  }).join('');
   return`<div style="border-bottom:1px solid var(--border);">
     <div onclick="toggleHRow('${uid}')" style="display:flex;align-items:center;gap:10px;padding:10px 6px;cursor:pointer;border-radius:7px;transition:background .12s;" onmouseover="this.style.background='var(--g50)'" onmouseout="this.style.background=''">
       <div class="hicon ${isIn?'hi-in':'hi-out'}">${isIn?'↑':'↓'}</div>
@@ -1397,6 +1400,7 @@ function pickItem(id){
   document.getElementById('live-results').innerHTML='';
   document.getElementById('move-search').value=item.name;
   document.getElementById('move-item-box').style.display='block';
+  if(moveMode==='salida')setTimeout(sigInit,80);
   document.getElementById('mi-name').textContent=item.name;
   document.getElementById('mi-meta').textContent=item.cat+' · '+item.brand+' · '+item.id;
   const b=document.getElementById('mi-badge'),s=st(item),L={ok:'Stock normal',low:'Stock bajo',out:'Sin stock'};
@@ -1499,68 +1503,71 @@ let _sigDrawing=false, _sigHasMark=false;
 
 function sigInit(){
   const canvas=document.getElementById('sig-canvas');
-  if(!canvas||canvas._sigReady)return;
-  canvas._sigReady=true;
-  // Size canvas to actual display size
-  function resize(){
-    const rect=canvas.getBoundingClientRect();
-    const img=canvas.getContext('2d').getImageData(0,0,canvas.width,canvas.height);
-    canvas.width=rect.width;
-    canvas.height=140;
-    const ctx=canvas.getContext('2d');
-    ctx.putImageData(img,0,0);
-    ctx.strokeStyle='#1a2e1a';ctx.lineWidth=2.5;ctx.lineCap='round';ctx.lineJoin='round';
-  }
-  resize();
+  if(!canvas)return;
+  // Remove old listeners by cloning
+  const fresh=canvas.cloneNode(true);
+  canvas.parentNode.replaceChild(fresh,canvas);
+  _sigHasMark=false;
+  fresh._sigReady=true;
+
+  // Set canvas pixel size — use parent width or fallback 300
+  const parent=fresh.parentElement;
+  const pw=parent?parent.offsetWidth:300;
+  fresh.width=pw>0?pw:300;
+  fresh.height=140;
+
+  const ctx=fresh.getContext('2d');
+  function setCtx(){ctx.strokeStyle='#1a2e1a';ctx.lineWidth=2.5;ctx.lineCap='round';ctx.lineJoin='round';}
+  setCtx();
 
   function getPos(e){
-    const rect=canvas.getBoundingClientRect();
+    const rect=fresh.getBoundingClientRect();
     const src=e.touches?e.touches[0]:e;
-    return{x:src.clientX-rect.left,y:src.clientY-rect.top};
+    return{x:(src.clientX-rect.left)*(fresh.width/rect.width),
+           y:(src.clientY-rect.top)*(fresh.height/rect.height)};
   }
   function start(e){
-    e.preventDefault();
-    _sigDrawing=true;
-    const ctx=canvas.getContext('2d');
-    ctx.strokeStyle='#1a2e1a';ctx.lineWidth=2.5;ctx.lineCap='round';ctx.lineJoin='round';
+    e.preventDefault();_sigDrawing=true;setCtx();
     const p=getPos(e);ctx.beginPath();ctx.moveTo(p.x,p.y);
   }
   function move(e){
     e.preventDefault();
     if(!_sigDrawing)return;
-    const ctx=canvas.getContext('2d');
+    setCtx();
     const p=getPos(e);ctx.lineTo(p.x,p.y);ctx.stroke();
     if(!_sigHasMark){
       _sigHasMark=true;
-      document.getElementById('sig-label').classList.add('signed');
-      document.getElementById('sig-status').textContent='✅ Firma capturada';
+      const lbl=document.getElementById('sig-label');
+      if(lbl)lbl.classList.add('signed');
+      const st=document.getElementById('sig-status');
+      if(st)st.textContent='✅ Firma capturada';
     }
   }
   function end(e){e.preventDefault();_sigDrawing=false;}
 
-  canvas.addEventListener('mousedown',start);
-  canvas.addEventListener('mousemove',move);
-  canvas.addEventListener('mouseup',end);
-  canvas.addEventListener('mouseleave',end);
-  canvas.addEventListener('touchstart',start,{passive:false});
-  canvas.addEventListener('touchmove',move,{passive:false});
-  canvas.addEventListener('touchend',end,{passive:false});
+  fresh.addEventListener('mousedown',start);
+  fresh.addEventListener('mousemove',move);
+  fresh.addEventListener('mouseup',end);
+  fresh.addEventListener('mouseleave',end);
+  fresh.addEventListener('touchstart',start,{passive:false});
+  fresh.addEventListener('touchmove',move,{passive:false});
+  fresh.addEventListener('touchend',end,{passive:false});
 }
 
 function sigClear(){
-  const canvas=document.getElementById('sig-canvas');
-  if(!canvas)return;
-  canvas.getContext('2d').clearRect(0,0,canvas.width,canvas.height);
   _sigHasMark=false;
-  canvas._sigReady=false;
-  document.getElementById('sig-label').classList.remove('signed');
-  document.getElementById('sig-status').textContent='';
-  sigInit();
+  const lbl=document.getElementById('sig-label');
+  if(lbl)lbl.classList.remove('signed');
+  const st=document.getElementById('sig-status');
+  if(st)st.textContent='';
+  sigInit(); // re-clones and resets canvas
 }
 
 function sigGetDataURL(){
   if(!_sigHasMark)return null;
-  return document.getElementById('sig-canvas').toDataURL('image/png');
+  const canvas=document.getElementById('sig-canvas');
+  if(!canvas||canvas.width===0)return null;
+  return canvas.toDataURL('image/png');
 }
 
 function confirmMove(type){
@@ -1626,6 +1633,9 @@ function confirmMove(type){
     // Cerrar formulario inmediatamente
     clearMoveForm();
     renderHome();
+    // Scroll to top so topbar/hamburger is visible
+    const main=document.querySelector('.main');
+    if(main)main.scrollTop=0;
 
     // Mostrar mensaje de éxito flotante
     const convLine=sel!=='main'?' ('+qtyRaw+' '+unitLabel+' = '+fmt(qtyInMain)+' '+item.unit+')':'';
