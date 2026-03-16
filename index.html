@@ -404,6 +404,14 @@ tr:hover td{background:var(--bg);}
 .hrow{cursor:pointer;transition:background .12s;}
 .hrow:hover{background:var(--g50);}
 
+
+/* ══ FIRMA DIGITAL ══ */
+.sig-wrap{border:2px dashed var(--border);border-radius:var(--r);background:var(--bg);position:relative;touch-action:none;overflow:hidden;cursor:crosshair;}
+.sig-canvas{display:block;width:100%;height:140px;border-radius:var(--r);}
+.sig-label{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font-size:12px;color:var(--text3);pointer-events:none;text-align:center;line-height:1.5;}
+.sig-label.signed{display:none;}
+.sig-actions{display:flex;gap:6px;margin-top:6px;}
+
 /* ══ MOBILE ══ */
 @media(max-width:640px){
   /* Topbar mobile */
@@ -705,6 +713,17 @@ tr:hover td{background:var(--bg);}
                   </div>
                   <div class="fg" style="margin-bottom:10px;"><label>Observación (opcional)</label>
                     <input type="text" id="mi-note-out" placeholder="Ej: Para taller 12/03, solicitud N°..."/>
+                  </div>
+                  <div class="fg" style="margin-bottom:10px;">
+                    <label>Firma del destinatario <span style="font-size:10px;color:var(--text3);">(opcional)</span></label>
+                    <div class="sig-wrap" id="sig-wrap">
+                      <canvas id="sig-canvas" class="sig-canvas" height="140"></canvas>
+                      <div class="sig-label" id="sig-label">✍ Firma aquí con el dedo o mouse</div>
+                    </div>
+                    <div class="sig-actions">
+                      <button type="button" class="btn btn-sm btn-g" onclick="sigClear()" style="font-size:11px;">🗑 Limpiar firma</button>
+                      <span id="sig-status" style="font-size:11px;color:var(--text3);align-self:center;"></span>
+                    </div>
                   </div>
                 </div>
 
@@ -1312,6 +1331,7 @@ function hHTML(h){
     ...(!isIn&&h.destNom?[['Destinatario',h.destNom],['Área',h.destArea||'—']]:[] ),
     ...(h.note?[['Observación',h.note]]:[]),
     ['Fecha', h.date],
+    ...(h.firma?[['Firma','<img src="'+h.firma+'" style="max-width:180px;border:1px solid var(--border);border-radius:4px;margin-top:4px;"/>']]:[] ),
     ['Periodo', h.period],
   ];
   const detailHTML=detailRows.map(([l,v])=>`
@@ -1352,6 +1372,7 @@ function setMoveTab(mode){
   const fi=document.getElementById('fields-ingreso'),fs=document.getElementById('fields-salida');
   if(fi)fi.style.display=mode==='ingreso'?'block':'none';
   if(fs)fs.style.display=mode==='salida'?'block':'none';
+  if(mode==='salida')setTimeout(sigInit,50);
   const dt=document.getElementById('mi-datetime');
   if(dt)dt.textContent=now();
   // Populate personal datalist
@@ -1466,10 +1487,81 @@ function clearMoveForm(keepMsg){
   document.getElementById('live-results').innerHTML='';
   if(!keepMsg)document.getElementById('move-msg-home').innerHTML='';
   document.getElementById('unit-conversion-note').style.display='none';
-  ['mi-resp-in','mi-note-in','mi-resp-out','mi-note-out','mi-dest-nom'].forEach(fid=>{const el=document.getElementById(fid);if(el)el.value='';});
+  ['mi-resp-in','mi-note-in','mi-resp-out','mi-note-out','mi-dest-nom'].forEach(fid=>{const el=document.getElementById(fid);if(el)el.value='';})
+  sigClear();;
   ['mi-motivo-in','mi-motivo-out','mi-dest-area'].forEach(fid=>{const el=document.getElementById(fid);if(el)el.value='';});
 }
 function openMoveModal(mode){setMoveTab(mode);document.getElementById('move-search').focus();}
+
+
+/* ══ FIRMA DIGITAL ══ */
+let _sigDrawing=false, _sigHasMark=false;
+
+function sigInit(){
+  const canvas=document.getElementById('sig-canvas');
+  if(!canvas||canvas._sigReady)return;
+  canvas._sigReady=true;
+  // Size canvas to actual display size
+  function resize(){
+    const rect=canvas.getBoundingClientRect();
+    const img=canvas.getContext('2d').getImageData(0,0,canvas.width,canvas.height);
+    canvas.width=rect.width;
+    canvas.height=140;
+    const ctx=canvas.getContext('2d');
+    ctx.putImageData(img,0,0);
+    ctx.strokeStyle='#1a2e1a';ctx.lineWidth=2.5;ctx.lineCap='round';ctx.lineJoin='round';
+  }
+  resize();
+
+  function getPos(e){
+    const rect=canvas.getBoundingClientRect();
+    const src=e.touches?e.touches[0]:e;
+    return{x:src.clientX-rect.left,y:src.clientY-rect.top};
+  }
+  function start(e){
+    e.preventDefault();
+    _sigDrawing=true;
+    const ctx=canvas.getContext('2d');
+    ctx.strokeStyle='#1a2e1a';ctx.lineWidth=2.5;ctx.lineCap='round';ctx.lineJoin='round';
+    const p=getPos(e);ctx.beginPath();ctx.moveTo(p.x,p.y);
+  }
+  function move(e){
+    e.preventDefault();
+    if(!_sigDrawing)return;
+    const ctx=canvas.getContext('2d');
+    const p=getPos(e);ctx.lineTo(p.x,p.y);ctx.stroke();
+    if(!_sigHasMark){
+      _sigHasMark=true;
+      document.getElementById('sig-label').classList.add('signed');
+      document.getElementById('sig-status').textContent='✅ Firma capturada';
+    }
+  }
+  function end(e){e.preventDefault();_sigDrawing=false;}
+
+  canvas.addEventListener('mousedown',start);
+  canvas.addEventListener('mousemove',move);
+  canvas.addEventListener('mouseup',end);
+  canvas.addEventListener('mouseleave',end);
+  canvas.addEventListener('touchstart',start,{passive:false});
+  canvas.addEventListener('touchmove',move,{passive:false});
+  canvas.addEventListener('touchend',end,{passive:false});
+}
+
+function sigClear(){
+  const canvas=document.getElementById('sig-canvas');
+  if(!canvas)return;
+  canvas.getContext('2d').clearRect(0,0,canvas.width,canvas.height);
+  _sigHasMark=false;
+  canvas._sigReady=false;
+  document.getElementById('sig-label').classList.remove('signed');
+  document.getElementById('sig-status').textContent='';
+  sigInit();
+}
+
+function sigGetDataURL(){
+  if(!_sigHasMark)return null;
+  return document.getElementById('sig-canvas').toDataURL('image/png');
+}
 
 function confirmMove(type){
   const msgEl=document.getElementById('move-msg-home');
@@ -1513,11 +1605,13 @@ function confirmMove(type){
     item.qty=Math.round(newQty*10000)/10000;
 
     const timestamp=now();
+    const sigData=type==='salida'?sigGetDataURL():null;
     const entry={
       id:item.id,name:item.name,cat:item.cat,unit:unitLabel,unitMain:item.unit,
       type,qty:qtyRaw,qtyMain:fmt(qtyInMain),
       responsible:resp,destNom,destArea,motivo,
-      note,date:timestamp,_d:new Date(),period:activePeriod
+      note,date:timestamp,_d:new Date(),period:activePeriod,
+      firma:sigData
     };
     hist.push(entry);
 
