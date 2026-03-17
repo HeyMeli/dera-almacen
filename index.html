@@ -1728,17 +1728,17 @@ function startExtraQR(idx){
 function openExtraQRModal(idx){
   const modal=document.getElementById('extra-qr-modal');
   if(!modal)return;
-  document.getElementById('extra-qr-title').textContent='Escanear QR — Insumo adicional '+(idx+1);
+  // Detener stream anterior si había uno
+  closeExtraQRModal();
+  document.getElementById('extra-qr-title').textContent='Escanear QR — Insumo '+(idx+1);
   modal.classList.add('open');
 
-  // Verificar soporte
   if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){
-    document.getElementById('extra-qr-status').textContent='Cámara no disponible. Usa HTTPS (GitHub Pages).';
+    document.getElementById('extra-qr-status').textContent='Cámara no disponible. Usa HTTPS.';
     return;
   }
-  const _jsQR=typeof jsQR!=='undefined'?jsQR:window.jsQR;
-  if(typeof _jsQR==='undefined'){
-    document.getElementById('extra-qr-status').textContent='⚠ jsQR no cargado. Verifica conexión.';
+  if(typeof jsQR==='undefined'&&typeof window.jsQR==='undefined'){
+    document.getElementById('extra-qr-status').textContent='⚠ jsQR no disponible.';
     return;
   }
 
@@ -1752,37 +1752,42 @@ function openExtraQRModal(idx){
     document.getElementById('extra-qr-status').textContent='🔍 Apunta al código QR...';
     const canvas=document.createElement('canvas');
     const ctx=canvas.getContext('2d',{willReadFrequently:true});
+    let detecting=false;
 
-    function loop(){
-      if(!_extraQRStream)return;
-      if(v.videoWidth===0||v.readyState<2){_extraQRRaf=requestAnimationFrame(loop);return;}
+    function extraLoop(){
+      if(!_extraQRStream||detecting)return;
+      if(v.videoWidth===0||v.readyState<2){
+        _extraQRRaf=requestAnimationFrame(extraLoop);return;
+      }
       canvas.width=v.videoWidth;canvas.height=v.videoHeight;
       ctx.drawImage(v,0,0);
       let img;
       try{img=ctx.getImageData(0,0,canvas.width,canvas.height);}
-      catch(e){_extraQRRaf=requestAnimationFrame(loop);return;}
+      catch(e){_extraQRRaf=requestAnimationFrame(extraLoop);return;}
+      const _jsQR=typeof jsQR!=='undefined'?jsQR:window.jsQR;
       const code=_jsQR(img.data,img.width,img.height,{inversionAttempts:'attemptBoth'});
       if(code&&code.data){
+        detecting=true;
         const qd=code.data.trim();
         const item=periodInv().find(i=>
           i.id===qd||i.id.toUpperCase()===qd.toUpperCase()||
           i.name.toLowerCase()===qd.toLowerCase());
         if(item){
           _extraItems[_extraQRTarget]={name:item.id,qty:_extraItems[_extraQRTarget].qty||'1',unit:item.unit};
-          closeExtraQRModal();
-          renderExtraItems();
+          setTimeout(()=>{closeExtraQRModal();renderExtraItems();},300);
           return;
         } else {
-          document.getElementById('extra-qr-status').textContent='⚠ '+qd+' no está en el inventario';
+          document.getElementById('extra-qr-status').textContent='⚠ '+qd+' no encontrado en inventario';
+          setTimeout(()=>{detecting=false;if(_extraQRStream)_extraQRRaf=requestAnimationFrame(extraLoop);},2000);
         }
+        return;
       }
-      _extraQRRaf=requestAnimationFrame(loop);
+      _extraQRRaf=requestAnimationFrame(extraLoop);
     }
 
-    v.onloadedmetadata=()=>{v.play();};
-    v.onplaying=()=>{loop();};
-    // Fallback: arrancar loop a los 1.5s si onplaying no disparó
-    setTimeout(()=>{if(_extraQRStream&&v.videoWidth>0)loop();},1500);
+    v.onloadedmetadata=()=>{ v.play(); };
+    v.onplaying=()=>{ extraLoop(); };
+    setTimeout(()=>{ if(_extraQRStream&&!detecting) extraLoop(); },1500);
 
   }).catch(err=>{
     document.getElementById('extra-qr-status').textContent='No se pudo acceder a la cámara: '+err.message;
@@ -2367,26 +2372,7 @@ function printQR(){
   if(!selQR)return;
   const img=document.getElementById('qr-canvas').toDataURL();
   const w=window.open('');
-  w.document.write(`<!DOCTYPE html><html><head><title>QR</title><style>body{text-align:center;font-family:sans-serif;padding:30px}</style></head><body><h3>${selQR.name}</h3><p>${selQR.id}</p><img src="${img}" style="width:200px"/>
-
-
-
-<!-- ══ EXTRA QR MODAL ══ -->
-<div class="scan-modal-bg" id="extra-qr-modal" style="z-index:800;">
-  <div class="scan-modal" style="max-width:340px;">
-    <div class="scan-modal-title">
-      <span id="extra-qr-title">Escanear QR</span>
-      <button onclick="closeExtraQRModal()" style="background:none;border:none;cursor:pointer;font-size:18px;color:var(--text3);">✕</button>
-    </div>
-    <div style="border-radius:var(--rl);overflow:hidden;border:2px solid var(--g400);background:#111;margin-bottom:10px;">
-      <video id="extra-qr-video" playsinline muted autoplay style="width:100%;display:block;aspect-ratio:4/3;object-fit:cover;"></video>
-    </div>
-    <div id="extra-qr-status" style="font-size:12px;color:var(--text3);margin-bottom:10px;text-align:center;"></div>
-    <button class="btn btn-g" onclick="closeExtraQRModal()" style="width:100%;justify-content:center;">Cancelar</button>
-  </div>
-</div>
-
-</body></html>`);
+  w.document.write('<html><head><title>QR</title><style>body{text-align:center;font-family:sans-serif;padding:30px}</style></head><body><h3>'+selQR.name+'</h3><p>'+selQR.id+'</p><img src="'+img+'" style="width:200px"/></body></html>');
   w.document.close();w.print();
 }
 
@@ -2741,5 +2727,21 @@ function exportPersonal(){
 init();
 
 </script>
+
+<!-- ══ EXTRA QR MODAL ══ -->
+<div class="scan-modal-bg" id="extra-qr-modal" style="z-index:800;">
+  <div class="scan-modal" style="max-width:340px;">
+    <div class="scan-modal-title">
+      <span id="extra-qr-title">Escanear QR</span>
+      <button onclick="closeExtraQRModal()" style="background:none;border:none;cursor:pointer;font-size:18px;color:var(--text3);">✕</button>
+    </div>
+    <div style="border-radius:var(--rl);overflow:hidden;border:2px solid var(--g400);background:#111;margin-bottom:10px;">
+      <video id="extra-qr-video" playsinline muted style="width:100%;display:block;aspect-ratio:4/3;object-fit:cover;"></video>
+    </div>
+    <div id="extra-qr-status" style="font-size:12px;color:var(--text3);margin-bottom:10px;text-align:center;"></div>
+    <button class="btn btn-g" onclick="closeExtraQRModal()" style="width:100%;justify-content:center;">Cancelar</button>
+  </div>
+</div>
+
 </body>
 </html>
